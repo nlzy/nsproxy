@@ -20,8 +20,10 @@
 #ifndef UNIX_LWIP_LWIPOPTS_H
 #define UNIX_LWIP_LWIPOPTS_H
 
-/* An OS is present */
-#define NO_SYS    0
+/* An OS is present, but we dont care */
+#define NO_SYS    1
+#define LWIP_SOCKET 0
+#define LWIP_NETCONN 0
 
 /* Sockets API config */
 #define LWIP_COMPAT_SOCKETS       0
