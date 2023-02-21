@@ -168,4 +168,8 @@ void sys_unlock_tcpip_core(void);
 #define IP6_DEBUG         LWIP_DBG_OFF
 #endif
 
+#define 	SYS_ARCH_DECL_PROTECT(lev) int lev = 0
+#define 	SYS_ARCH_PROTECT(lev) lev++
+#define 	SYS_ARCH_UNPROTECT(lev) lev--
+
 #endif /* UNIX_LWIP_LWIPOPTS_H */
