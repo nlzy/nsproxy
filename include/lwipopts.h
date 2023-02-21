@@ -92,18 +92,18 @@
 #define LWIP_MULTICAST_TX_OPTIONS   1
 
 /* Enable modules */
-#define LWIP_ARP              1
-#define LWIP_ETHERNET         1
+#define LWIP_ARP              0
+#define LWIP_ETHERNET         0
 #define LWIP_IPV4             1
 #define LWIP_ICMP             1
-#define LWIP_IGMP             1
-#define LWIP_RAW              1
+#define LWIP_IGMP             0
+#define LWIP_RAW              0
 #define LWIP_UDP              1
-#define LWIP_UDPLITE          1
+#define LWIP_UDPLITE          0
 #define LWIP_TCP              1
 #define LWIP_IPV6             1
 #define LWIP_ICMP6            1
-#define LWIP_IPV6_MLD         1
+#define LWIP_IPV6_MLD         0
 
 /* Don't abort the whole stack when an error is detected */
 #define LWIP_NOASSERT_ON_ERROR   1
