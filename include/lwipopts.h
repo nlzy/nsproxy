@@ -51,20 +51,20 @@
 #define ARP_QUEUE_LEN   10
 
 /*
- * Activate loopback, but don't use lwip's default loopback interface,
+ * DONT Activate loopback, but don't use lwip's default loopback interface,
  * we provide our own.
  */
-#define LWIP_NETIF_LOOPBACK   1
+#define LWIP_NETIF_LOOPBACK   0
 #define LWIP_HAVE_LOOPIF      0
 
 /* IPv4 stuff */
-#define IP_FORWARD  1
+#define IP_FORWARD  0
 
 /* SLAAC support and other IPv6 stuff */
-#define LWIP_IPV6_DUP_DETECT_ATTEMPTS 1
-#define LWIP_IPV6_SEND_ROUTER_SOLICIT 1
-#define LWIP_IPV6_AUTOCONFIG          1
-#define LWIP_IPV6_FORWARD             1
+#define LWIP_IPV6_DUP_DETECT_ATTEMPTS 0
+#define LWIP_IPV6_SEND_ROUTER_SOLICIT 0
+#define LWIP_IPV6_AUTOCONFIG          0
+#define LWIP_IPV6_FORWARD             0
 #define MEMP_NUM_MLD6_GROUP           16
 #define LWIP_IPV6_NUM_ADDRESSES       6
 
@@ -167,6 +167,8 @@ void sys_unlock_tcpip_core(void);
 #define DNS_DEBUG         LWIP_DBG_OFF
 #define IP6_DEBUG         LWIP_DBG_OFF
 #endif
+
+#define LWIP_SINGLE_NETIF 1
 
 #define 	SYS_ARCH_DECL_PROTECT(lev) int lev = 0
 #define 	SYS_ARCH_PROTECT(lev) lev++
