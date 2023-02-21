@@ -1,0 +1,13 @@
+BasedOnStyle: LLVM
+AlignConsecutiveMacros: true
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+BreakBeforeBraces: Linux
+ColumnLimit: 80
+Cpp11BracedListStyle: false
+IndentCaseLabels: false
+IndentWidth: 4
+UseTab: Never
