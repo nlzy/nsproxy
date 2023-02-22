@@ -26,8 +26,8 @@
 #include <unistd.h>
 
 #include "lwip/init.h"
-#include "lwip/netif.h"
 #include "lwip/ip.h"
+#include "lwip/netif.h"
 
 #define CONFIG_LOCAL_IP   "172.23.255.255"
 #define CONFIG_GATEWAY_IP "172.23.255.254"
@@ -226,43 +226,6 @@ int recv_fd(int sock)
     return ret;
 }
 
-
-
-
-
-/*-----------------------------------------------------------------------------------*/
-/*
- * low_level_output():
- *
- * Should do the actual transmission of the packet. The packet is
- * contained in the pbuf that is passed to the function. This pbuf
- * might be chained.
- *
- */
-/*-----------------------------------------------------------------------------------*/
-static err_t low_level_output(struct netif *netif, struct pbuf *p)
-{
-    int *tunfd = netif->state;
-    char buf[1518]; /* max packet size including VLAN excluding CRC */
-    ssize_t written;
-
-    if (p->tot_len > sizeof(buf)) {
-        perror("tapif: packet too large");
-        return ERR_IF;
-    }
-
-    /* initiate transfer(); */
-    pbuf_copy_partial(p, buf, p->tot_len, 0);
-
-    /* signal that packet should be sent(); */
-    written = write(*tunfd, buf, p->tot_len);
-    if (written < p->tot_len) {
-        perror("tapif: write");
-        return ERR_IF;
-    } else {
-        return ERR_OK;
-    }
-}
 /*-----------------------------------------------------------------------------------*/
 /*
  * low_level_input():
@@ -331,13 +294,47 @@ static void tunif_input(struct netif *netif)
     }
 }
 
-err_t ethip4_output(struct netif *netif, struct pbuf *p,
+/*-----------------------------------------------------------------------------------*/
+/*
+ * low_level_output():
+ *
+ * Should do the actual transmission of the packet. The packet is
+ * contained in the pbuf that is passed to the function. This pbuf
+ * might be chained.
+ *
+ */
+/*-----------------------------------------------------------------------------------*/
+static err_t low_level_output(struct netif *netif, struct pbuf *p)
+{
+    int *tunfd = netif->state;
+    char buf[1518]; /* max packet size including VLAN excluding CRC */
+    ssize_t written;
+
+    if (p->tot_len > sizeof(buf)) {
+        perror("tapif: packet too large");
+        return ERR_IF;
+    }
+
+    /* initiate transfer(); */
+    pbuf_copy_partial(p, buf, p->tot_len, 0);
+
+    /* signal that packet should be sent(); */
+    written = write(*tunfd, buf, p->tot_len);
+    if (written < p->tot_len) {
+        perror("tapif: write");
+        return ERR_IF;
+    } else {
+        return ERR_OK;
+    }
+}
+
+err_t tunip4_output(struct netif *netif, struct pbuf *p,
                     const ip4_addr_t *ipaddr)
 {
     return low_level_output(netif, p);
 }
 
-err_t ethip6_output(struct netif *netif, struct pbuf *p,
+err_t tunip6_output(struct netif *netif, struct pbuf *p,
                     const ip6_addr_t *ipaddr)
 {
     return low_level_output(netif, p);
@@ -348,31 +345,13 @@ err_t tunif_init(struct netif *netif)
     netif->name[0] = 't';
     netif->name[1] = 'u';
 
-    netif->output = ethip4_output;
-    netif->output_ip6 = ethip6_output;
+    netif->output = tunip4_output;
+    netif->output_ip6 = tunip6_output;
     netif->linkoutput = low_level_output;
     netif->mtu = 1500;
 
-    /* Obtain MAC address from network interface. */
-
-    /* (We just fake an address...) */
-    netif->hwaddr[0] = 0x02;
-    netif->hwaddr[1] = 0x12;
-    netif->hwaddr[2] = 0x34;
-    netif->hwaddr[3] = 0x56;
-    netif->hwaddr[4] = 0x78;
-    netif->hwaddr[5] = 0xab;
-    netif->hwaddr_len = 6;
-
-    /* device capabilities */
-    netif->flags = 0;
-
-    netif_set_link_up(netif);
-
     return ERR_OK;
 }
-
-
 
 int parent(int sk)
 {
@@ -442,11 +421,11 @@ int parent(int sk)
     ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
     ip4addr_aton("0.0.0.0", &tungateway);
 
-    netif_add(&tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd, &tunif_init, &ip_input);
+    netif_add(&tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd, &tunif_init,
+              &ip_input);
     netif_set_default(&tunif);
     netif_set_link_up(&tunif);
     netif_set_up(&tunif);
-
 
     /* MAIN LOOP */
 
