@@ -52,7 +52,7 @@
 #ifdef LWIP_DEBUG
 #define IP_DEBUG         LWIP_DBG_ON
 #define IP6_DEBUG        LWIP_DBG_ON
-#define ICMP_DEBUG       LWIP_DBG_OFF
+#define ICMP_DEBUG       LWIP_DBG_ON
 #define TCP_DEBUG        LWIP_DBG_ON
 #define UDP_DEBUG        LWIP_DBG_ON
 #define NETIF_DEBUG      LWIP_DBG_OFF
