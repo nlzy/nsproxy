@@ -320,7 +320,7 @@ static void tunif_input(struct netif *netif)
 #if LINK_STATS
         LINK_STATS_INC(link.recv);
 #endif /* LINK_STATS */
-        LWIP_DEBUGF(TAPIF_DEBUG,
+        LWIP_DEBUGF(NETIF_DEBUG,
                     ("tunif_input: low_level_input returned NULL\n"));
         return;
     }
@@ -548,6 +548,7 @@ int main(int argc, char *argv[])
 void sys_init(void)
 {
 }
+
 int sys_now(void)
 {
     return 0;
