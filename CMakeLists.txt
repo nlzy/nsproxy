@@ -33,8 +33,8 @@ add_executable(tun2sock-lwip
 
 target_include_directories(tun2sock-lwip PUBLIC ./include)
 
-set(CMAKE_C_FLAGS      "${CMAKE_C_FLAGS}      -Wall -Wextra -Wno-unused-parameter")
-set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wall -Wextra -Wno-unused-parameter")
+set(CMAKE_C_FLAGS      "${CMAKE_C_FLAGS}      -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable")
 
 set(CMAKE_C_FLAGS_DEBUG      "${CMAKE_C_FLAGS_DEBUG}      -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
 set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
