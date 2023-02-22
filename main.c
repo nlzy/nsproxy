@@ -431,7 +431,9 @@ int parent(int sk)
 
     for (;;) {
         if ((nevent = epoll_wait(epfd, &ev, 1, -1)) == -1) {
-            if (errno != EINTR) {
+            if (errno == EINTR) {
+                continue;
+            } else {
                 perror("epoll_wait()");
                 abort();
             }
