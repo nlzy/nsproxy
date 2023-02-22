@@ -1,4 +1,3 @@
-
 #define NO_SYS       1
 #define LWIP_SOCKET  0
 #define LWIP_NETCONN 0
@@ -21,6 +20,7 @@
 /* Use Glibc malloc()/free() */
 #define MEM_LIBC_MALLOC 1
 #define MEMP_MEM_MALLOC 1
+
 #define MEM_ALIGNMENT __SIZEOF_POINTER__
 
 /* netif */
@@ -50,15 +50,23 @@
 
 /* Debug mode */
 #ifdef LWIP_DEBUG
-#define IP_DEBUG         LWIP_DBG_ON
-#define IP6_DEBUG        LWIP_DBG_ON
-#define ICMP_DEBUG       LWIP_DBG_ON
-#define TCP_DEBUG        LWIP_DBG_ON
-#define UDP_DEBUG        LWIP_DBG_ON
-#define NETIF_DEBUG      LWIP_DBG_OFF
-#define TIMERS_DEBUG     LWIP_DBG_OFF
+#define IP_DEBUG     LWIP_DBG_ON
+#define IP6_DEBUG    LWIP_DBG_ON
+#define ICMP_DEBUG   LWIP_DBG_ON
+#define TCP_DEBUG    LWIP_DBG_ON
+#define UDP_DEBUG    LWIP_DBG_ON
+#define NETIF_DEBUG  LWIP_DBG_OFF
+#define TIMERS_DEBUG LWIP_DBG_OFF
 #endif
 
 #define SYS_ARCH_DECL_PROTECT(lev) (void)0
 #define SYS_ARCH_PROTECT(lev)      (void)0
 #define SYS_ARCH_UNPROTECT(lev)    (void)0
+
+#define lwip_htons(x)                  htobe16(x)
+#define lwip_htonl(x)                  htobe32(x)
+#define lwip_strnstr(buffer, token, n) strnstr(buffer, token, n)
+#define lwip_stricmp(str1, str2)       stricmp(str1, str2)
+#define lwip_strnicmp(str1, str2, len) strnicmp(str1, str2, len)
+#define lwip_itoa(result, bufsize, number) \
+    snprintf(result, bufsize, "%d", number)

@@ -5,7 +5,6 @@ project(nwrap C)
 set(CMAKE_C_STANDARD 90)
 
 add_executable(tun2sock-lwip
-    def.c
     inet_chksum.c
     init.c
     ip.c
