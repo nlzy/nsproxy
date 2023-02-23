@@ -68,7 +68,9 @@
 #include "lwip/igmp.h"
 #include "lwip/timeouts.h"
 /* needed by default MEMP_NUM_SYS_TIMEOUT */
+#ifndef NWRAP_MODIFIED
 #include "netif/ppp/ppp_opts.h"
+#endif
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
 #include "lwip/priv/nd6_priv.h"
