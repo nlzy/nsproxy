@@ -1221,8 +1221,8 @@ udp_remove(struct udp_pcb *pcb)
     }
   }
 #ifdef NWRAP_MODIFIED
-  if (pcb->ops) {
-    pcb->ops->destroy(pcb->ops);
+  if (pcb->conn) {
+    pcb->conn->destroy(pcb->conn);
   }
 #endif
   memp_free(MEMP_UDP_PCB, pcb);

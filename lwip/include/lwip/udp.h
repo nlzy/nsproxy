@@ -116,7 +116,7 @@ struct udp_pcb {
   void *recv_arg;
 
 #ifdef NWRAP_MODIFIED
-  struct sk_ops *ops;
+  struct sk_ops *conn;
 #endif
 };
 /* udp_pcbs export for external reference (e.g. SNMP agent) */

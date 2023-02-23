@@ -9,7 +9,7 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 {
     fprintf(stderr, "udp_recv_cb\n");
 
-    pcb->ops->send(pcb->ops, p->payload, p->len);
+    pcb->conn->send(pcb->conn, p->payload, p->len);
 
     pbuf_free(p);
 }
@@ -22,7 +22,7 @@ void udp_handle_event(void *userp, int event)
     struct pbuf *pb;
 
     if (event & EPOLLIN) {
-        nread = pcb->ops->recv(pcb->ops, buffer, sizeof(buffer));
+        nread = pcb->conn->recv(pcb->conn, buffer, sizeof(buffer));
         if (nread > 0) {
             pb = pbuf_alloc(PBUF_TRANSPORT, nread, PBUF_RAM);
             pbuf_take(pb, buffer, nread);
@@ -32,7 +32,7 @@ void udp_handle_event(void *userp, int event)
     }
 
     if (event & EPOLLOUT) {
-        pcb->ops->send(pcb->ops, buffer, 0);
+        pcb->conn->send(pcb->conn, buffer, 0);
     }
 
     if (event & (EPOLLERR | EPOLLHUP)) {
@@ -45,8 +45,8 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 {
     fprintf(stderr, "hook_on_udp_new\n");
     pcb->recv = &udp_recv_cb;
-    direct_udp_create(&pcb->ops, netif_default->state, pcb, &udp_handle_event);
-    pcb->ops->connect(pcb->ops, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
+    direct_udp_create(&pcb->conn, netif_default->state, pcb, &udp_handle_event);
+    pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }
 
 err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
