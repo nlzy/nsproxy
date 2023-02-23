@@ -3,19 +3,14 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-#include "lwip/netif.h"
 #include "common.h"
 
-struct context_loop {
-    int tunfd;
-    int sigfd;
-    int epfd;
-    struct netif tunif;
-};
+struct context_loop;
 
 void loop_init(struct context_loop **ctx, int tunfd, int sigfd);
 void loop_deinit(struct context_loop *ctx);
 int loop_run(struct context_loop *ctx);
+int loop_epfd(struct context_loop *ctx);
 
 struct sk_ops {
     int (*connect)(struct sk_ops *handle, const char *addr, uint16_t port);

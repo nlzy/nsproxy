@@ -17,6 +17,13 @@
 #include "lwip/netif.h"
 #include "lwip/timeouts.h"
 
+struct context_loop {
+    int tunfd;
+    int sigfd;
+    int epfd;
+    struct netif tunif;
+};
+
 static void tun_input(struct netif *netif)
 {
     struct pbuf *p;
