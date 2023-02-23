@@ -70,3 +70,5 @@
 #define lwip_strnicmp(str1, str2, len) strnicmp(str1, str2, len)
 #define lwip_itoa(result, bufsize, number) \
     snprintf(result, bufsize, "%d", number)
+
+#define NWRAP_MODIFIED 1

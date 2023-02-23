@@ -28,6 +28,7 @@ add_executable(tun2sock-lwip
     tcp_out.c
     timeouts.c
     udp.c
+    hook.c
 )
 
 target_include_directories(tun2sock-lwip PUBLIC ./include)

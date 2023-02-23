@@ -59,6 +59,10 @@
 #include "lwip/nd6.h"
 #endif /* LWIP_ND6_TCP_REACHABILITY_HINTS */
 
+#ifdef NWRAP_MODIFIED
+#include "hook.h"
+#endif
+
 #include <string.h>
 
 #ifdef LWIP_HOOK_FILENAME
@@ -104,6 +108,15 @@ static void tcp_remove_sacks_lt(struct tcp_pcb *pcb, u32_t seq);
 static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* TCP_OOSEQ_BYTES_LIMIT || TCP_OOSEQ_PBUFS_LIMIT */
 #endif /* LWIP_TCP_SACK_OUT */
+
+#ifdef NWRAP_MODIFIED
+err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
+{
+  tcp_close((struct tcp_pcb *)newpcb->listener);
+  hook_on_tcp_new(newpcb);
+  return 0;
+}
+#endif
 
 /**
  * The initial input processing of TCP. It verifies the TCP header, demultiplexes
@@ -349,6 +362,15 @@ tcp_input(struct pbuf *p, struct netif *inp)
       }
       prev = (struct tcp_pcb *)lpcb;
     }
+
+#ifdef NWRAP_MODIFIED
+    pcb = tcp_new();
+    tcp_bind(pcb, ip_current_dest_addr(), tcphdr->dest);
+    pcb = tcp_listen_with_backlog(pcb, 1);
+    tcp_accept(pcb, &on_tcp_accept);
+    lpcb = (struct tcp_pcb_listen *)pcb;
+#endif
+
 #if SO_REUSE
     /* first try specific local IP */
     if (lpcb == NULL) {

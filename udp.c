@@ -63,6 +63,10 @@
 #include "lwip/snmp.h"
 #include "lwip/dhcp.h"
 
+#ifdef NWRAP_MODIFIED
+#include "hook.h"
+#endif
+
 #include <string.h>
 
 #ifndef UDP_LOCAL_PORT_RANGE_START
@@ -309,6 +313,15 @@ udp_input(struct pbuf *p, struct netif *inp)
   if (pcb == NULL) {
     pcb = uncon_pcb;
   }
+
+#ifdef NWRAP_MODIFIED
+  if (pcb == NULL) {
+    pcb = udp_new();
+    udp_bind(pcb, ip_current_dest_addr(), dest);
+    udp_connect(pcb, ip_current_src_addr(), src);
+    hook_on_udp_new(pcb);
+  }
+#endif
 
   /* Check checksum if this is a match or if it was directed at us. */
   if (pcb != NULL) {
@@ -658,10 +671,12 @@ udp_sendto_if_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *dst_i
       }
     } else {
       /* use UDP PCB local IPv6 address as source address, if still valid. */
+#ifndef NWRAP_MODIFIED
       if (netif_get_ip6_addr_match(netif, ip_2_ip6(&pcb->local_ip)) < 0) {
         /* Address isn't valid anymore. */
         return ERR_RTE;
       }
+#endif
       src_ip = &pcb->local_ip;
     }
   }
@@ -678,10 +693,12 @@ udp_sendto_if_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *dst_i
     } else {
       /* check if UDP PCB local IP address is correct
        * this could be an old address if netif->ip_addr has changed */
+#ifndef NWRAP_MODIFIED
       if (!ip4_addr_cmp(ip_2_ip4(&(pcb->local_ip)), netif_ip4_addr(netif))) {
         /* local_ip doesn't match, drop the packet */
         return ERR_RTE;
       }
+#endif
       /* use UDP PCB local IP address as source address */
       src_ip = &pcb->local_ip;
     }
