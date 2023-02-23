@@ -23,11 +23,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "lwip/init.h"
 #include "lwip/ip.h"
 #include "lwip/netif.h"
+#include "lwip/timeouts.h"
 
 #define CONFIG_LOCAL_IP   "172.23.255.255"
 #define CONFIG_GATEWAY_IP "172.23.255.254"
@@ -430,13 +432,18 @@ int parent(int sk)
     /* MAIN LOOP */
 
     for (;;) {
-        if ((nevent = epoll_wait(epfd, &ev, 1, -1)) == -1) {
+        if ((nevent = epoll_wait(epfd, &ev, 1, 250)) == -1) {
             if (errno == EINTR) {
                 continue;
             } else {
                 perror("epoll_wait()");
                 abort();
             }
+        }
+
+        if (nevent == 0){
+            sys_check_timeouts();
+            continue;
         }
 
         if (ev.data.ptr == &tunfd) {
@@ -530,7 +537,12 @@ void sys_init(void)
 {
 }
 
-int sys_now(void)
+unsigned sys_now(void)
 {
-    return 0;
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) == -1) {
+        perror("clock_gettime()");
+        abort();
+    }
+    return now.tv_nsec / 1000000 + now.tv_sec * 1000;
 }
