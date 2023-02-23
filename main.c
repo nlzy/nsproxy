@@ -110,7 +110,7 @@ int bringup_tun()
         abort();
     }
 
-    ifr.ifr_mtu = 1500;
+    ifr.ifr_mtu = CONFIG_MTU;
     if (ioctl(sk, SIOCSIFMTU, &ifr) == -1) {
         perror("ioctl()");
         abort();

@@ -17,7 +17,7 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void udp_handle_event(void *userp, int event)
 {
     struct udp_pcb *pcb = userp;
-    char buffer[65536];
+    char buffer[CONFIG_MTU];
     ssize_t nread;
     struct pbuf *pb;
 

@@ -26,67 +26,52 @@ struct context_loop {
 
 static void tun_input(struct netif *tunif)
 {
-    struct pbuf *p;
-    u16_t len;
-    ssize_t readlen;
-    char buf[1518]; /* max packet size including VLAN excluding CRC */
     struct context_loop *ctx = tunif->state;
+    char buffer[CONFIG_MTU];
+    ssize_t nread;
+    struct pbuf *p;
 
-    /* Obtain the size of the packet and put it into the "len"
-       variable. */
-    readlen = read(ctx->tunfd, buf, sizeof(buf));
-    if (readlen < 0) {
-        perror("read returned -1");
-        exit(1);
-    }
-    len = (u16_t)readlen;
-
-    /* We allocate a pbuf chain of pbufs from the pool. */
-    p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-    if (p != NULL) {
-        pbuf_take(p, buf, len);
-        /* acknowledge that packet has been read(); */
-    } else {
-        LWIP_DEBUGF(NETIF_DEBUG, ("tunif_input: could not allocate pbuf\n"));
+    if ((nread = read(ctx->tunfd, buffer, sizeof(buffer))) == -1) {
+        perror("read()");
+        abort();
     }
 
-    if (p == NULL) {
-#if LINK_STATS
-        LINK_STATS_INC(link.recv);
-#endif /* LINK_STATS */
-        LWIP_DEBUGF(NETIF_DEBUG,
-                    ("tunif_input: low_level_input returned NULL\n"));
-        return;
+    if ((p = pbuf_alloc(PBUF_RAW, nread, PBUF_RAM)) == NULL) {
+        fprintf(stderr, "Out of Memory.\n");
+        abort();
     }
+
+    pbuf_take(p, buffer, nread);
 
     if (tunif->input(p, tunif) != ERR_OK) {
-        LWIP_DEBUGF(NETIF_DEBUG, ("tunif_input: netif input error\n"));
+        LWIP_DEBUGF(NETIF_DEBUG, ("tun_input: netif input error\n"));
         pbuf_free(p);
     }
 }
 
 static err_t tun_output(struct netif *tunif, struct pbuf *p)
 {
-    char buf[1518]; /* max packet size including VLAN excluding CRC */
-    ssize_t written;
     struct context_loop *ctx = tunif->state;
+    char buffer[CONFIG_MTU];
+    ssize_t nwrite;
 
-    if (p->tot_len > sizeof(buf)) {
-        perror("tapif: packet too large");
+    if (p->tot_len > sizeof(buffer)) {
+        LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: packet too large\n"));
         return ERR_IF;
     }
 
-    /* initiate transfer(); */
-    pbuf_copy_partial(p, buf, p->tot_len, 0);
+    pbuf_copy_partial(p, buffer, p->tot_len, 0);
 
-    /* signal that packet should be sent(); */
-    written = write(ctx->tunfd, buf, p->tot_len);
-    if (written < p->tot_len) {
-        perror("tapif: write");
-        return ERR_IF;
-    } else {
-        return ERR_OK;
+    if ((nwrite = write(ctx->tunfd, buffer, p->tot_len)) == -1) {
+        perror("write()");
+        abort();
     }
+    if (nwrite != p->tot_len) {
+        LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: partial write\n"));
+        return ERR_IF;
+    }
+
+    return ERR_OK;
 }
 
 err_t tunip4_output(struct netif *netif, struct pbuf *p,
@@ -109,7 +94,7 @@ err_t tunif_init(struct netif *netif)
     netif->output = tunip4_output;
     netif->output_ip6 = tunip6_output;
     netif->linkoutput = tun_output;
-    netif->mtu = 1500;
+    netif->mtu = CONFIG_MTU;
 
     return ERR_OK;
 }
