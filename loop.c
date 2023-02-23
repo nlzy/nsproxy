@@ -121,7 +121,6 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
     ip4_addr_t tungateway;
-    struct netif *tunif;
 
     if ((p = malloc(sizeof(struct context_loop))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
@@ -154,17 +153,15 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
     ip4addr_aton("0.0.0.0", &tungateway);
 
-    if ((tunif = malloc(sizeof(struct netif))) == NULL) {
+    if ((p->tunif = malloc(sizeof(struct netif))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
         abort();
     }
-    tunif->state = p;
-
-    netif_add(tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd,
-              &tunif_init, &ip_input);
-    netif_set_default(tunif);
-    netif_set_link_up(tunif);
-    netif_set_up(tunif);
+    netif_add(p->tunif, &tunaddr, &tunnetmask, &tungateway, p, &tunif_init,
+              &ip_input);
+    netif_set_default(p->tunif);
+    netif_set_link_up(p->tunif);
+    netif_set_up(p->tunif);
 
     *ctx = p;
 }
