@@ -21,16 +21,16 @@ struct context_loop {
     int tunfd;
     int sigfd;
     int epfd;
-    struct netif tunif;
+    struct netif *tunif;
 };
 
-static void tun_input(struct netif *netif)
+static void tun_input(struct netif *tunif)
 {
     struct pbuf *p;
     u16_t len;
     ssize_t readlen;
     char buf[1518]; /* max packet size including VLAN excluding CRC */
-    struct context_loop *ctx = container_of(netif, struct context_loop, tunif);
+    struct context_loop *ctx = tunif->state;
 
     /* Obtain the size of the packet and put it into the "len"
        variable. */
@@ -59,17 +59,17 @@ static void tun_input(struct netif *netif)
         return;
     }
 
-    if (netif->input(p, netif) != ERR_OK) {
+    if (tunif->input(p, tunif) != ERR_OK) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tunif_input: netif input error\n"));
         pbuf_free(p);
     }
 }
 
-static err_t tun_output(struct netif *netif, struct pbuf *p)
+static err_t tun_output(struct netif *tunif, struct pbuf *p)
 {
     char buf[1518]; /* max packet size including VLAN excluding CRC */
     ssize_t written;
-    struct context_loop *ctx = container_of(netif, struct context_loop, tunif);
+    struct context_loop *ctx = tunif->state;
 
     if (p->tot_len > sizeof(buf)) {
         perror("tapif: packet too large");
@@ -121,6 +121,7 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
     ip4_addr_t tungateway;
+    struct netif *tunif;
 
     if ((p = malloc(sizeof(struct context_loop))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
@@ -153,11 +154,17 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
     ip4addr_aton("0.0.0.0", &tungateway);
 
-    netif_add(&p->tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd,
+    if ((tunif = malloc(sizeof(struct netif))) == NULL) {
+        fprintf(stderr, "Out of Memory\n");
+        abort();
+    }
+    tunif->state = p;
+
+    netif_add(tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd,
               &tunif_init, &ip_input);
-    netif_set_default(&p->tunif);
-    netif_set_link_up(&p->tunif);
-    netif_set_up(&p->tunif);
+    netif_set_default(tunif);
+    netif_set_link_up(tunif);
+    netif_set_up(tunif);
 
     *ctx = p;
 }
@@ -167,6 +174,7 @@ void loop_deinit(struct context_loop *ctx)
     close(ctx->epfd);
     close(ctx->tunfd);
     close(ctx->sigfd);
+    free(ctx->tunif);
     free(ctx);
 }
 
@@ -187,7 +195,7 @@ int loop_run(struct context_loop *ctx)
 
         for (i = 0; i < nevent; i++) {
             if (ev[i].data.ptr == &ctx->tunfd) {
-                tun_input(&ctx->tunif);
+                tun_input(ctx->tunif);
             } else if (ev[i].data.ptr == &ctx->sigfd) {
                 loop_deinit(ctx);
                 fprintf(stderr, "Bye ~\n");
