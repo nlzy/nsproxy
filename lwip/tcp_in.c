@@ -112,10 +112,10 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #ifdef NWRAP_MODIFIED
 err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-  tcp_close((struct tcp_pcb *)newpcb->listener);
   hook_on_tcp_new(newpcb);
   return 0;
 }
+static struct tcp_pcb_listen nwrap_fake_lpcb = { .accept = &on_tcp_accept };
 #endif
 
 /**
@@ -362,15 +362,6 @@ tcp_input(struct pbuf *p, struct netif *inp)
       }
       prev = (struct tcp_pcb *)lpcb;
     }
-
-#ifdef NWRAP_MODIFIED
-    pcb = tcp_new();
-    tcp_bind(pcb, ip_current_dest_addr(), tcphdr->dest);
-    pcb = tcp_listen_with_backlog(pcb, 1);
-    tcp_accept(pcb, &on_tcp_accept);
-    lpcb = (struct tcp_pcb_listen *)pcb;
-#endif
-
 #if SO_REUSE
     /* first try specific local IP */
     if (lpcb == NULL) {
@@ -420,6 +411,17 @@ tcp_input(struct pbuf *p, struct netif *inp)
     return;
   }
 #endif
+
+#ifdef NWRAP_MODIFIED
+  if (pcb == NULL) {
+    ip_addr_copy(nwrap_fake_lpcb.local_ip, *ip_current_dest_addr());
+    nwrap_fake_lpcb.local_port = tcphdr->dest;
+    tcp_listen_input(&nwrap_fake_lpcb);
+    pbuf_free(p);
+    return;
+  }
+#endif
+
   if (pcb != NULL) {
     /* The incoming segment belongs to a connection. */
 #if TCP_INPUT_DEBUG
