@@ -49,6 +49,10 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/prot/udp.h"
 
+#ifdef NWRAP_MODIFIED
+#include "loop.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -110,6 +114,10 @@ struct udp_pcb {
   udp_recv_fn recv;
   /** user-supplied argument for the recv callback */
   void *recv_arg;
+
+#ifdef NWRAP_MODIFIED
+  struct sk_ops *ops;
+#endif
 };
 /* udp_pcbs export for external reference (e.g. SNMP agent) */
 extern struct udp_pcb *udp_pcbs;

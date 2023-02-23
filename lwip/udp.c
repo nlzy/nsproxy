@@ -317,8 +317,11 @@ udp_input(struct pbuf *p, struct netif *inp)
 #ifdef NWRAP_MODIFIED
   if (pcb == NULL) {
     pcb = udp_new();
-    udp_bind(pcb, ip_current_dest_addr(), dest);
-    udp_connect(pcb, ip_current_src_addr(), src);
+    ip_addr_set_ipaddr(&pcb->local_ip, ip_current_dest_addr());
+    ip_addr_set_ipaddr(&pcb->remote_ip, ip_current_src_addr());
+    pcb->local_port = dest;
+    pcb->remote_port = src;
+    pcb->flags |= UDP_FLAGS_CONNECTED;
     hook_on_udp_new(pcb);
   }
 #endif
@@ -1217,6 +1220,11 @@ udp_remove(struct udp_pcb *pcb)
       }
     }
   }
+#ifdef NWRAP_MODIFIED
+  if (pcb->ops) {
+    pcb->ops->destroy(pcb->ops);
+  }
+#endif
   memp_free(MEMP_UDP_PCB, pcb);
 }
 

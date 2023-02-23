@@ -39,6 +39,7 @@ add_executable(tun2sock-lwip
     hook.c
     loop.c
     sys.c
+    direct.c
 )
 
 target_include_directories(tun2sock-lwip PRIVATE
