@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
@@ -23,17 +22,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
 
-#include "lwip/init.h"
-#include "lwip/ip.h"
-#include "lwip/netif.h"
-#include "lwip/timeouts.h"
-
-#define CONFIG_LOCAL_IP   "172.23.255.255"
-#define CONFIG_GATEWAY_IP "172.23.255.254"
-#define CONFIG_NETMASK    "255.255.255.254"
+#include "common.h"
+#include "loop.h"
 
 static void write_string(const char *fname, const char *str)
 {
@@ -228,146 +220,13 @@ int recv_fd(int sock)
     return ret;
 }
 
-/*-----------------------------------------------------------------------------------*/
-/*
- * low_level_input():
- *
- * Should allocate a pbuf and transfer the bytes of the incoming
- * packet from the interface into the pbuf.
- *
- */
-/*-----------------------------------------------------------------------------------*/
-static struct pbuf *low_level_input(struct netif *netif)
-{
-    struct pbuf *p;
-    u16_t len;
-    ssize_t readlen;
-    char buf[1518]; /* max packet size including VLAN excluding CRC */
-    int *tunfd = netif->state;
-
-    /* Obtain the size of the packet and put it into the "len"
-       variable. */
-    readlen = read(*tunfd, buf, sizeof(buf));
-    if (readlen < 0) {
-        perror("read returned -1");
-        exit(1);
-    }
-    len = (u16_t)readlen;
-
-    /* We allocate a pbuf chain of pbufs from the pool. */
-    p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-    if (p != NULL) {
-        pbuf_take(p, buf, len);
-        /* acknowledge that packet has been read(); */
-    } else {
-        LWIP_DEBUGF(NETIF_DEBUG, ("tunif_input: could not allocate pbuf\n"));
-    }
-
-    return p;
-}
-
-/*-----------------------------------------------------------------------------------*/
-/*
- * tunif_input():
- *
- * This function should be called when a packet is ready to be read
- * from the interface. It uses the function low_level_input() that
- * should handle the actual reception of bytes from the network
- * interface.
- *
- */
-/*-----------------------------------------------------------------------------------*/
-static void tunif_input(struct netif *netif)
-{
-    struct pbuf *p = low_level_input(netif);
-
-    if (p == NULL) {
-#if LINK_STATS
-        LINK_STATS_INC(link.recv);
-#endif /* LINK_STATS */
-        LWIP_DEBUGF(NETIF_DEBUG,
-                    ("tunif_input: low_level_input returned NULL\n"));
-        return;
-    }
-
-    if (netif->input(p, netif) != ERR_OK) {
-        LWIP_DEBUGF(NETIF_DEBUG, ("tunif_input: netif input error\n"));
-        pbuf_free(p);
-    }
-}
-
-/*-----------------------------------------------------------------------------------*/
-/*
- * low_level_output():
- *
- * Should do the actual transmission of the packet. The packet is
- * contained in the pbuf that is passed to the function. This pbuf
- * might be chained.
- *
- */
-/*-----------------------------------------------------------------------------------*/
-static err_t low_level_output(struct netif *netif, struct pbuf *p)
-{
-    int *tunfd = netif->state;
-    char buf[1518]; /* max packet size including VLAN excluding CRC */
-    ssize_t written;
-
-    if (p->tot_len > sizeof(buf)) {
-        perror("tapif: packet too large");
-        return ERR_IF;
-    }
-
-    /* initiate transfer(); */
-    pbuf_copy_partial(p, buf, p->tot_len, 0);
-
-    /* signal that packet should be sent(); */
-    written = write(*tunfd, buf, p->tot_len);
-    if (written < p->tot_len) {
-        perror("tapif: write");
-        return ERR_IF;
-    } else {
-        return ERR_OK;
-    }
-}
-
-err_t tunip4_output(struct netif *netif, struct pbuf *p,
-                    const ip4_addr_t *ipaddr)
-{
-    return low_level_output(netif, p);
-}
-
-err_t tunip6_output(struct netif *netif, struct pbuf *p,
-                    const ip6_addr_t *ipaddr)
-{
-    return low_level_output(netif, p);
-}
-
-err_t tunif_init(struct netif *netif)
-{
-    netif->name[0] = 't';
-    netif->name[1] = 'u';
-
-    netif->output = tunip4_output;
-    netif->output_ip6 = tunip6_output;
-    netif->linkoutput = low_level_output;
-    netif->mtu = 1500;
-
-    return ERR_OK;
-}
-
 int parent(int sk)
 {
     int tunfd;
     int childfd;
     sigset_t mask;
+    struct context_loop *ctx;
     char dummy = '\0';
-    int i, nevent;
-    struct epoll_event ev;
-    int epfd;
-    struct netif tunif = { 0 };
-    ip4_addr_t tunaddr;
-    ip4_addr_t tunnetmask;
-    ip4_addr_t tungateway;
 
     tunfd = recv_fd(sk);
     fprintf(stderr, "recv_fd: %d\n", tunfd);
@@ -398,61 +257,8 @@ int parent(int sk)
 
     close(sk);
 
-    if ((epfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
-        perror("epoll_create1()");
-        abort();
-    }
-
-    ev.events = EPOLLIN;
-    ev.data.ptr = &tunfd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, tunfd, &ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-
-    ev.events = EPOLLIN;
-    ev.data.ptr = &childfd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, childfd, &ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-
-    lwip_init();
-
-    ip4addr_aton(CONFIG_GATEWAY_IP, &tunaddr);
-    ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
-    ip4addr_aton("0.0.0.0", &tungateway);
-
-    netif_add(&tunif, &tunaddr, &tunnetmask, &tungateway, &tunfd, &tunif_init,
-              &ip_input);
-    netif_set_default(&tunif);
-    netif_set_link_up(&tunif);
-    netif_set_up(&tunif);
-
-    /* MAIN LOOP */
-
-    for (;;) {
-        if ((nevent = epoll_wait(epfd, &ev, 1, 250)) == -1) {
-            if (errno == EINTR) {
-                continue;
-            } else {
-                perror("epoll_wait()");
-                abort();
-            }
-        }
-
-        if (nevent == 0){
-            sys_check_timeouts();
-            continue;
-        }
-
-        if (ev.data.ptr == &tunfd) {
-            tunif_input(&tunif);
-        } else if (ev.data.ptr == &childfd) {
-            fprintf(stderr, "Bye ~\n");
-            return 0;
-        }
-    }
+    loop_init(&ctx, tunfd, childfd);
+    return loop_run(ctx);
 }
 
 int child(int sk, char *cmd[])
@@ -531,18 +337,4 @@ int main(int argc, char *argv[])
 
         return child(skpair[1], cmd);
     }
-}
-
-void sys_init(void)
-{
-}
-
-unsigned sys_now(void)
-{
-    struct timespec now;
-    if (clock_gettime(CLOCK_MONOTONIC, &now) == -1) {
-        perror("clock_gettime()");
-        abort();
-    }
-    return now.tv_nsec / 1000000 + now.tv_sec * 1000;
 }

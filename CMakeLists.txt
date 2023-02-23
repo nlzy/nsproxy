@@ -37,6 +37,8 @@ add_executable(tun2sock-lwip
     lwip/udp.c
     main.c
     hook.c
+    loop.c
+    sys.c
 )
 
 target_include_directories(tun2sock-lwip PRIVATE
