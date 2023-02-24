@@ -36,25 +36,26 @@
 #define LWIP_IPV6_AUTOCONFIG          0
 
 /* TCP tuning */
-#define TCP_MSS        1460
-#define TCP_WND        0xFFFF
+#define TCP_MSS        64000U
+#define TCP_WND        (64000U * 2)
+#define TCP_SND_BUF    (64000U * 4)
+#define TCP_SNDLOWAT   (64000U * 2)
 #define LWIP_WND_SCALE 1
-#define TCP_RCV_SCALE  0x1
-#define TCP_SND_BUF    TCP_WND
+#define TCP_RCV_SCALE  1
 
-#ifndef _DEBUG
+#ifdef NDEBUG
 #define LWIP_DEBUG 0
 #else
 #define LWIP_DEBUG 1
 #endif
 
 /* Debug mode */
-#ifdef LWIP_DEBUG
-#define IP_DEBUG     LWIP_DBG_ON
-#define IP6_DEBUG    LWIP_DBG_ON
-#define ICMP_DEBUG   LWIP_DBG_ON
-#define TCP_DEBUG    LWIP_DBG_ON
-#define UDP_DEBUG    LWIP_DBG_ON
+#if LWIP_DEBUG
+#define IP_DEBUG     LWIP_DBG_OFF
+#define IP6_DEBUG    LWIP_DBG_OFF
+#define ICMP_DEBUG   LWIP_DBG_OFF
+#define TCP_DEBUG    LWIP_DBG_OFF
+#define UDP_DEBUG    LWIP_DBG_OFF
 #define NETIF_DEBUG  LWIP_DBG_OFF
 #define TIMERS_DEBUG LWIP_DBG_OFF
 #endif
