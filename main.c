@@ -294,7 +294,7 @@ int child(int sk, char *cmd[])
 
     close(sk);
 
-    if (execv(cmd[0], cmd + 1) == -1) {
+    if (execv(cmd[0], cmd) == -1) {
         perror("execv()");
         abort();
     }
