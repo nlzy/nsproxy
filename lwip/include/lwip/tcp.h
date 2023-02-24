@@ -51,6 +51,10 @@
 #include "lwip/ip6.h"
 #include "lwip/ip6_addr.h"
 
+#if NWRAP_MODIFIED
+#include "loop.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -385,6 +389,12 @@ struct tcp_pcb {
 #if LWIP_WND_SCALE
   u8_t snd_scale;
   u8_t rcv_scale;
+#endif
+
+#if NWRAP_MODIFIED
+  struct sk_ops *conn;
+  struct pbuf *rcvq[128];
+  size_t nrecvq;
 #endif
 };
 

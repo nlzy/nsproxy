@@ -213,6 +213,10 @@ tcp_free(struct tcp_pcb *pcb)
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
+#ifdef NWRAP_MODIFIED
+  if (pcb->conn)
+    pcb->conn->destroy(pcb->conn);
+#endif
   memp_free(MEMP_TCP_PCB, pcb);
 }
 

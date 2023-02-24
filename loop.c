@@ -168,11 +168,16 @@ int loop_run(struct context_loop *ctx)
 
     for (;;) {
         if ((nevent = epoll_wait(ctx->epfd, ev, sizeof(ev) / sizeof(*ev),
-                                 -1)) == -1) {
+                                 250)) == -1) {
             if (errno != EINTR) {
                 perror("epoll_wait()");
                 abort();
             }
+        }
+
+        if (nevent == 0) {
+            sys_check_timeouts();
+            continue;
         }
 
         for (i = 0; i < nevent; i++) {
