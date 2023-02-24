@@ -10,9 +10,15 @@
 static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                         const ip_addr_t *addr, u16_t port)
 {
-    fprintf(stderr, "udp_recv_cb\n");
+    char buffer[65535];
+    struct pbuf *ptr;
 
-    pcb->conn->send(pcb->conn, p->payload, p->len);
+    if (p->len == p->tot_len) {
+        pcb->conn->send(pcb->conn, p->payload, p->tot_len);
+    } else {
+        pbuf_copy_partial(p, buffer, p->tot_len, 0);
+        pcb->conn->send(pcb->conn, buffer, p->tot_len);
+    }
 
     pbuf_free(p);
 }
@@ -20,26 +26,28 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void udp_handle_event(void *userp, int event)
 {
     struct udp_pcb *pcb = userp;
-    char buffer[CONFIG_MTU];
+    char buffer[65535];
     ssize_t nread;
-    struct pbuf *pb;
+    struct pbuf *p;
 
     if (event & EPOLLIN) {
         nread = pcb->conn->recv(pcb->conn, buffer, sizeof(buffer));
         if (nread > 0) {
-            pb = pbuf_alloc(PBUF_TRANSPORT, nread, PBUF_RAM);
-            pbuf_take(pb, buffer, nread);
-            udp_send(pcb, pb);
-            pbuf_free(pb);
+            if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
+                fprintf(stderr, "Out of Memory.\n");
+                abort();
+            }
+            udp_send(pcb, p);
+            pbuf_free(p);
         }
     }
 
     if (event & EPOLLOUT) {
-        pcb->conn->send(pcb->conn, buffer, 0);
+        pcb->conn->send(pcb->conn, NULL, 0);
     }
 
     if (event & (EPOLLERR | EPOLLHUP)) {
-        /* udp_pcb_free(pcb); */
+        /* no op, timer will release this pcb */
         return;
     }
 }
