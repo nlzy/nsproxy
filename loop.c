@@ -23,6 +23,7 @@
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/netif.h"
 #include "lwip/tcp.h"
+#include "lwip/udp.h"
 #include "lwip/timeouts.h"
 
 struct context_loop {
@@ -227,6 +228,7 @@ int loop_run(struct context_loop *ctx)
                     ip_reass_tmr();
                     ip6_reass_tmr();
                 }
+                udp_tmr();
                 tcp_tmr();
                 epoch++;
             } else {

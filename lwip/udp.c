@@ -326,6 +326,9 @@ udp_input(struct pbuf *p, struct netif *inp)
     udp_pcbs = pcb;
     hook_on_udp_new(pcb);
   }
+  if (pcb != NULL) {
+    pcb->gc = 120;
+  }
 #endif
 
   /* Check checksum if this is a match or if it was directed at us. */
@@ -901,6 +904,10 @@ udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *d
     ip_proto = IP_PROTO_UDP;
   }
 
+#if NWRAP_MODIFIED
+  pcb->gc = 120;
+#endif
+
   /* Determine TTL to use */
 #if LWIP_MULTICAST_TX_OPTIONS
   ttl = (ip_addr_ismulticast(dst_ip) ? udp_get_multicast_ttl(pcb) : pcb->ttl);
@@ -1337,5 +1344,22 @@ udp_debug_print(struct udp_hdr *udphdr)
   LWIP_DEBUGF(UDP_DEBUG, ("+-------------------------------+\n"));
 }
 #endif /* UDP_DEBUG */
+
+#if NWRAP_MODIFIED
+void udp_tmr(void)
+{
+  struct udp_pcb *pcb, *tofree;
+  for (pcb = udp_pcbs; pcb != NULL; ) {
+    if (pcb->gc == 0) {
+      tofree = pcb;
+      pcb = pcb->next;
+      udp_remove(tofree);
+    } else {
+      pcb->gc--;
+      pcb = pcb->next;
+    }
+  }
+}
+#endif
 
 #endif /* LWIP_UDP */
