@@ -116,7 +116,7 @@ void tcp_handle_event(void *userp, int type)
 
 static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
-    if (TCP_SND_BUF == pcb->snd_buf)
+    if (len == pcb->snd_buf)
         tcp_handle_event(pcb, EPOLLIN);
     return ERR_OK;
 }
