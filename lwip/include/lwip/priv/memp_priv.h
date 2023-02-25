@@ -116,7 +116,11 @@ struct memp_desc {
 #endif
 
   /** Element size */
+#ifdef NWRAP_MODIFIED
+  u32_t size;
+#else
   u16_t size;
+#endif
 
 #if !MEMP_MEM_MALLOC
   /** Number of elements */

@@ -1,3 +1,4 @@
+#include <string.h>
 #include <errno.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -61,31 +62,30 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
 /* TCP */
 
-static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
-                         err_t err);
-
 void tcp_handle_event(void *userp, int type)
 {
     struct tcp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
-    char buffer[CONFIG_MTU];
     ssize_t nread, nsent;
     size_t i;
+    struct pbuf *p;
+    int e;
+    char buffer[TCP_SND_BUF];
 
     if (type & EPOLLERR) {
+        conn->destroy(conn);
+        pcb->conn = NULL;
         tcp_abort(pcb);
         return;
     }
 
     if (type & EPOLLIN) {
-        if (TCP_SND_QUEUELEN == tcp_sndqueuelen(pcb)) {
-            nread = conn->recv(conn, buffer, 0);
-        } else {
-            nread = conn->recv(conn, buffer, sizeof(buffer));
-        }
-
+        nread = conn->recv(conn, buffer, LWIP_MIN(sizeof(buffer), tcp_sndbuf(pcb)));
         if (nread > 0) {
-            tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY);
+            if ((e = tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK)) {
+                fprintf(stderr, "Out of Memory.\n");
+                abort();
+            }
             tcp_output(pcb);
         } else if (nread == 0) {
             tcp_shutdown(pcb, 0, 1);
@@ -95,30 +95,26 @@ void tcp_handle_event(void *userp, int type)
     }
 
     if (type & EPOLLOUT) {
-        for (i = 0; i < pcb->nrecvq; i++) {
-            nsent = conn->send(conn, pcb->rcvq[i]->payload, pcb->rcvq[i]->len);
-            if (nsent != pcb->rcvq[i]->len)
-                abort();
-            tcp_recved(pcb, pcb->rcvq[i]->len);
-            pbuf_free(pcb->rcvq[i]);
+        nsent = conn->send(conn, pcb->rcvq, pcb->nrcvq);
+        if (nsent > 0) {
+            pcb->nrcvq -= nsent;
+            memmove(pcb->rcvq, pcb->rcvq + nsent, pcb->nrcvq);
+        } else {
+            /* ERR, will handle in EPOLLERR, just continue*/
         }
-        pcb->nrecvq = 0;
-        conn->send(conn, NULL, 0);
     }
 
     if (type & EPOLLHUP) {
         conn->destroy(conn);
         pcb->conn = NULL;
-        tcp_shutdown(pcb, 1, 1);
         tcp_close(pcb);
     }
 }
 
 static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
-    if (tcp_sndqueuelen(pcb) == 0) {
+    if (TCP_SND_BUF == pcb->snd_buf)
         tcp_handle_event(pcb, EPOLLIN);
-    }
     return ERR_OK;
 }
 
@@ -147,16 +143,15 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
     if (p->len != p->tot_len)
         abort();
 
-    nsent = conn->send(conn, p->payload, p->len);
+    if (sizeof(pcb->rcvq) - pcb->nrcvq < p->tot_len)
+        abort();
+    
+    memcpy(pcb->rcvq + pcb->nrcvq, p->payload, p->tot_len);
+    pcb->nrcvq += p->tot_len;
 
-    if (nsent == p->len) {
-        tcp_recved(pcb, nsent);
-        pbuf_free(p);
-        return ERR_OK;
-    } else if (nsent == -EAGAIN) {
-        pcb->rcvq[pcb->nrecvq++] = p;
-        return ERR_OK;
-    }
+    tcp_handle_event(pcb, EPOLLOUT);
+
+    pbuf_free(p);
 
     return ERR_OK;
 }

@@ -393,8 +393,8 @@ struct tcp_pcb {
 
 #if NWRAP_MODIFIED
   struct sk_ops *conn;
-  struct pbuf *rcvq[128];
-  size_t nrecvq;
+  char rcvq[TCP_WND];
+  size_t nrcvq;
 #endif
 };
 
