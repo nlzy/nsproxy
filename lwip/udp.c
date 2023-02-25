@@ -322,6 +322,8 @@ udp_input(struct pbuf *p, struct netif *inp)
     pcb->local_port = dest;
     pcb->remote_port = src;
     pcb->flags |= UDP_FLAGS_CONNECTED;
+    pcb->next = udp_pcbs;
+    udp_pcbs = pcb;
     hook_on_udp_new(pcb);
   }
 #endif
