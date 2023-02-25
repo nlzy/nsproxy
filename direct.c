@@ -109,7 +109,9 @@ ssize_t direct_send(struct sk_ops *handle, const char *data, size_t size)
         }
     }
 
+#ifndef NDEBUG
     fprintf(stderr, "--- direct %s %zd bytes.\n", h->desc, nsent);
+#endif
 
     return nsent;
 }
@@ -142,7 +144,9 @@ ssize_t direct_recv(struct sk_ops *handle, char *data, size_t size)
         disable_event(h, EPOLLIN);
     } /* - else return nread */
 
+#ifndef NDEBUG
     fprintf(stderr, "+++ direct %s %zd bytes.\n", h->desc, nread);
+#endif
 
     return nread;
 }
