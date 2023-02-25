@@ -1,5 +1,6 @@
-#include <string.h>
+#include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
@@ -67,9 +68,6 @@ void tcp_handle_event(void *userp, int type)
     struct tcp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
     ssize_t nread, nsent;
-    size_t i;
-    struct pbuf *p;
-    int e;
     char buffer[TCP_SND_BUF];
 
     if (type & EPOLLERR) {
@@ -80,9 +78,12 @@ void tcp_handle_event(void *userp, int type)
     }
 
     if (type & EPOLLIN) {
-        nread = conn->recv(conn, buffer, LWIP_MIN(sizeof(buffer), tcp_sndbuf(pcb)));
+        nread = tcp_sndqueuelen(pcb) == TCP_SND_QUEUELEN
+                    ? 0
+                    : LWIP_MIN(sizeof(buffer), tcp_sndbuf(pcb));
+        nread = conn->recv(conn, buffer, nread);
         if (nread > 0) {
-            if ((e = tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK)) {
+            if (tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK) {
                 fprintf(stderr, "Out of Memory.\n");
                 abort();
             }
@@ -137,23 +138,11 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
         return ERR_OK;
     }
 
-    /* ACK immediatly */
-    pcb->flags |= TF_ACK_NOW;
-    tcp_output(pcb);
-
-    if (p->len != p->tot_len)
-        abort();
-
-    if (sizeof(pcb->rcvq) - pcb->nrcvq < p->tot_len)
-        abort();
-    
-    memcpy(pcb->rcvq + pcb->nrcvq, p->payload, p->tot_len);
+    pbuf_copy_partial(p, pcb->rcvq + pcb->nrcvq, p->tot_len, 0);
     pcb->nrcvq += p->tot_len;
-
-    tcp_handle_event(pcb, EPOLLOUT);
-
     pbuf_free(p);
 
+    tcp_handle_event(pcb, EPOLLOUT);
     return ERR_OK;
 }
 
