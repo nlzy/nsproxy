@@ -26,7 +26,6 @@ add_executable(tun2sock-lwip
     lwip/ipv6/ip6.c
     lwip/ipv6/ip6_frag.c
     lwip/ipv6/nd6.c
-    lwip/mem.c
     lwip/memp.c
     lwip/netif.c
     lwip/pbuf.c
