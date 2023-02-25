@@ -99,6 +99,7 @@ void tcp_handle_event(void *userp, int type)
         if (nsent > 0) {
             pcb->nrcvq -= nsent;
             memmove(pcb->rcvq, pcb->rcvq + nsent, pcb->nrcvq);
+            tcp_recved(pcb, nsent);
         } else {
             /* ERR, will handle in EPOLLERR, just continue*/
         }
