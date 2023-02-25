@@ -9,8 +9,6 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -Wall -Wextra -Wno-unused-paramete
 
 set(CMAKE_C_FLAGS_DEBUG      "${CMAKE_C_FLAGS_DEBUG}      -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
 set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
-set(CMAKE_C_FLAGS_RELWITHDEBINFO      "${CMAKE_C_FLAGS_RELWITHDEBINFO}      -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
-set(CMAKE_LINKER_FLAGS_RELWITHDEBINFO "${CMAKE_LINKER_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
 
 add_executable(tun2sock-lwip
     lwip/inet_chksum.c
