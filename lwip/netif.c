@@ -59,10 +59,14 @@
 #include "lwip/netif.h"
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/udp.h"
+#if !NWRAP_MODIFIED
 #include "lwip/priv/raw_priv.h"
+#endif
 #include "lwip/snmp.h"
+#if !NWRAP_MODIFIED
 #include "lwip/igmp.h"
 #include "lwip/etharp.h"
+#endif
 #include "lwip/stats.h"
 #include "lwip/sys.h"
 #include "lwip/ip.h"

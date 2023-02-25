@@ -24,7 +24,6 @@
 #include "lwip/netif.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
-#include "lwip/timeouts.h"
 
 struct context_loop {
     int tunfd;

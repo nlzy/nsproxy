@@ -57,11 +57,15 @@
 #include "lwip/inet_chksum.h"
 #include "lwip/netif.h"
 #include "lwip/icmp6.h"
+#if NWRAP_MODIFIED
+#include "lwip/ip.h"
+#else 
 #include "lwip/mld6.h"
 #include "lwip/dhcp6.h"
 #include "lwip/ip.h"
 #include "lwip/stats.h"
 #include "lwip/dns.h"
+#endif
 
 #include <string.h>
 

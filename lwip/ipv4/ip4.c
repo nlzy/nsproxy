@@ -49,12 +49,16 @@
 #include "lwip/inet_chksum.h"
 #include "lwip/netif.h"
 #include "lwip/icmp.h"
+#if !NWRAP_MODIFIED
 #include "lwip/igmp.h"
 #include "lwip/priv/raw_priv.h"
+#endif
 #include "lwip/udp.h"
 #include "lwip/priv/tcp_priv.h"
+#if !NWRAP_MODIFIED
 #include "lwip/autoip.h"
 #include "lwip/stats.h"
+#endif
 #include "lwip/prot/iana.h"
 
 #include <string.h>

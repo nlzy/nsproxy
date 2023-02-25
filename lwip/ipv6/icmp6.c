@@ -51,9 +51,13 @@
 #include "lwip/pbuf.h"
 #include "lwip/netif.h"
 #include "lwip/nd6.h"
+#if !NWRAP_MODIFIED
 #include "lwip/mld6.h"
+#endif
 #include "lwip/ip.h"
+#if !NWRAP_MODIFIED
 #include "lwip/stats.h"
+#endif
 
 #include <string.h>
 

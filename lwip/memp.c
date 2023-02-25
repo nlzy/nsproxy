@@ -53,12 +53,17 @@
 
 /* Make sure we include everything we need for size calculation required by memp_std.h */
 #include "lwip/pbuf.h"
+#if !NWRAP_MODIFIED
 #include "lwip/raw.h"
+#endif
 #include "lwip/udp.h"
 #include "lwip/tcp.h"
 #include "lwip/priv/tcp_priv.h"
+#if !NWRAP_MODIFIED
 #include "lwip/altcp.h"
+#endif
 #include "lwip/ip4_frag.h"
+#if !NWRAP_MODIFIED
 #include "lwip/netbuf.h"
 #include "lwip/api.h"
 #include "lwip/priv/tcpip_priv.h"
@@ -68,14 +73,15 @@
 #include "lwip/igmp.h"
 #include "lwip/timeouts.h"
 /* needed by default MEMP_NUM_SYS_TIMEOUT */
-#if !NWRAP_MODIFIED
 #include "netif/ppp/ppp_opts.h"
-#endif
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
+#endif
 #include "lwip/priv/nd6_priv.h"
 #include "lwip/ip6_frag.h"
+#if !NWRAP_MODIFIED
 #include "lwip/mld6.h"
+#endif
 
 #define LWIP_MEMPOOL(name,num,size,desc) LWIP_MEMPOOL_DECLARE(name,num,size,desc)
 #include "lwip/priv/memp_std.h"

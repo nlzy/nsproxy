@@ -61,7 +61,9 @@
 #include "lwip/icmp6.h"
 #include "lwip/stats.h"
 #include "lwip/snmp.h"
+#if !NWRAP_MODIFIED
 #include "lwip/dhcp.h"
+#endif
 
 #if NWRAP_MODIFIED
 #include "hook.h"
