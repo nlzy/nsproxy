@@ -63,7 +63,7 @@
 #include "lwip/snmp.h"
 #include "lwip/dhcp.h"
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
 #include "hook.h"
 #endif
 
@@ -314,7 +314,7 @@ udp_input(struct pbuf *p, struct netif *inp)
     pcb = uncon_pcb;
   }
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
   if (pcb == NULL) {
     pcb = udp_new();
     ip_addr_set_ipaddr(&pcb->local_ip, ip_current_dest_addr());
@@ -679,7 +679,7 @@ udp_sendto_if_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *dst_i
       }
     } else {
       /* use UDP PCB local IPv6 address as source address, if still valid. */
-#ifndef NWRAP_MODIFIED
+#if !NWRAP_MODIFIED
       if (netif_get_ip6_addr_match(netif, ip_2_ip6(&pcb->local_ip)) < 0) {
         /* Address isn't valid anymore. */
         return ERR_RTE;
@@ -701,7 +701,7 @@ udp_sendto_if_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *dst_i
     } else {
       /* check if UDP PCB local IP address is correct
        * this could be an old address if netif->ip_addr has changed */
-#ifndef NWRAP_MODIFIED
+#if !NWRAP_MODIFIED
       if (!ip4_addr_cmp(ip_2_ip4(&(pcb->local_ip)), netif_ip4_addr(netif))) {
         /* local_ip doesn't match, drop the packet */
         return ERR_RTE;
@@ -1229,7 +1229,7 @@ udp_remove(struct udp_pcb *pcb)
       }
     }
   }
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
   if (pcb->conn) {
     pcb->conn->destroy(pcb->conn);
   }

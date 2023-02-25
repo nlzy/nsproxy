@@ -59,7 +59,7 @@
 #include "lwip/nd6.h"
 #endif /* LWIP_ND6_TCP_REACHABILITY_HINTS */
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
 #include "hook.h"
 #endif
 
@@ -109,7 +109,7 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* TCP_OOSEQ_BYTES_LIMIT || TCP_OOSEQ_PBUFS_LIMIT */
 #endif /* LWIP_TCP_SACK_OUT */
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
 err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
   hook_on_tcp_new(newpcb);
@@ -412,7 +412,7 @@ tcp_input(struct pbuf *p, struct netif *inp)
   }
 #endif
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
   if (pcb == NULL) {
     ip_addr_copy(nwrap_fake_lpcb.local_ip, *ip_current_dest_addr());
     nwrap_fake_lpcb.local_port = tcphdr->dest;

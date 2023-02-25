@@ -49,7 +49,7 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/prot/udp.h"
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
 #include "loop.h"
 #endif
 

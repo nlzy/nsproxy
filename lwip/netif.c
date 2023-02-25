@@ -72,7 +72,7 @@
 #endif /* LWIP_NETIF_LOOPBACK_MULTITHREADING */
 #endif /* ENABLE_LOOPBACK */
 
-#ifndef NWRAP_MODIFIED
+#if !NWRAP_MODIFIED
 #include "netif/ethernet.h"
 #endif
 

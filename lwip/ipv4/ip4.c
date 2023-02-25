@@ -379,7 +379,7 @@ ip4_input_accept(struct netif *netif)
                          ip4_addr_get_u32(netif_ip4_addr(netif)) & ip4_addr_get_u32(netif_ip4_netmask(netif)),
                          ip4_addr_get_u32(ip4_current_dest_addr()) & ~ip4_addr_get_u32(netif_ip4_netmask(netif))));
 
-#ifdef NWRAP_MODIFIED
+#if NWRAP_MODIFIED
   return 1;
 #endif
 
