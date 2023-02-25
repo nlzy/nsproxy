@@ -10,6 +10,8 @@
         (type *)((char *)__mptr - offsetof(type, member)); \
     })
 
+#define arraysizeof(array) (sizeof(array) / sizeof(*(array)))
+
 #define CONFIG_LOCAL_IP   "172.23.255.255"
 #define CONFIG_GATEWAY_IP "172.23.255.254"
 #define CONFIG_NETMASK    "255.255.255.254"

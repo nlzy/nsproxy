@@ -1,26 +1,35 @@
 #include "loop.h"
 
+#include <stdint.h>
 #include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "lwip/init.h"
 #include "lwip/ip.h"
+#include "lwip/ip4_frag.h"
+#include "lwip/ip6_frag.h"
+#include "lwip/priv/tcp_priv.h"
 #include "lwip/netif.h"
+#include "lwip/tcp.h"
 #include "lwip/timeouts.h"
 
 struct context_loop {
     int tunfd;
     int sigfd;
     int epfd;
+    int timerfd;
     struct netif *tunif;
 };
 
@@ -106,6 +115,8 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
     ip4_addr_t tungateway;
+    struct itimerspec its = { .it_interval.tv_nsec = 250000000,
+                              .it_value.tv_nsec = 250000000 };
 
     if ((p = malloc(sizeof(struct context_loop))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
@@ -133,6 +144,22 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
         abort();
     }
 
+    if ((p->timerfd = timerfd_create(CLOCK_MONOTONIC,
+                                     TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
+        perror("timerfd_create()");
+        abort();
+    }
+    if ((timerfd_settime(p->timerfd, 0, &its, NULL)) == -1) {
+        perror("timerfd_settime()");
+        abort();
+    }
+    ev.events = EPOLLIN;
+    ev.data.ptr = &p->timerfd;
+    if (epoll_ctl(p->epfd, EPOLL_CTL_ADD, p->timerfd, &ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+
     lwip_init();
     ip4addr_aton(CONFIG_GATEWAY_IP, &tunaddr);
     ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
@@ -156,6 +183,7 @@ void loop_deinit(struct context_loop *ctx)
     close(ctx->epfd);
     close(ctx->tunfd);
     close(ctx->sigfd);
+    close(ctx->timerfd);
     free(ctx->tunif);
     free(ctx);
 }
@@ -163,30 +191,44 @@ void loop_deinit(struct context_loop *ctx)
 int loop_run(struct context_loop *ctx)
 {
     int i, nevent;
+    size_t epoch = 0;
+    uint64_t expired;
     struct ep_poller *poller;
+    struct signalfd_siginfo sig;
     struct epoll_event ev[1]; /* TODO: batch event */
 
     for (;;) {
-        if ((nevent = epoll_wait(ctx->epfd, ev, sizeof(ev) / sizeof(*ev),
-                                 250)) == -1) {
+        if ((nevent = epoll_wait(ctx->epfd, ev, arraysizeof(ev), -1)) == -1) {
             if (errno != EINTR) {
                 perror("epoll_wait()");
                 abort();
             }
         }
 
-        if (nevent == 0) {
-            sys_check_timeouts();
-            continue;
-        }
-
         for (i = 0; i < nevent; i++) {
             if (ev[i].data.ptr == &ctx->tunfd) {
                 tun_input(ctx->tunif);
             } else if (ev[i].data.ptr == &ctx->sigfd) {
-                loop_deinit(ctx);
-                fprintf(stderr, "Bye ~\n");
-                return 0;
+                if (read(ctx->sigfd, &sig, sizeof(sig)) == -1) {
+                    perror("read()");
+                    abort();
+                }
+                if (sig.ssi_signo == SIGCHLD) {
+                    loop_deinit(ctx);
+                    fprintf(stderr, "Bye ~\n");
+                    return 0;
+                }
+            } else if (ev[i].data.ptr == &ctx->timerfd) {
+                if (read(ctx->timerfd, &expired, sizeof(expired)) == -1) {
+                    perror("read()");
+                    abort();
+                }
+                if (epoch % 4 == 0) {
+                    ip_reass_tmr();
+                    ip6_reass_tmr();
+                }
+                tcp_tmr();
+                epoch++;
             } else {
                 poller = ev[i].data.ptr;
                 poller->on_epoll_event(poller, ev[i].events);
@@ -198,4 +240,8 @@ int loop_run(struct context_loop *ctx)
 int loop_epfd(struct context_loop *ctx)
 {
     return ctx->epfd;
+}
+
+void tcp_timer_needed()
+{
 }

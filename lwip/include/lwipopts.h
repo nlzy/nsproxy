@@ -16,6 +16,7 @@
 #define LWIP_ICMP6    1
 #define LWIP_IPV6_MLD 0
 #define LWIP_STATS    0
+#define LWIP_TIMERS   0
 
 /* Use Glibc malloc()/free() */
 #define MEM_LIBC_MALLOC 1
@@ -36,10 +37,10 @@
 #define LWIP_IPV6_AUTOCONFIG          0
 
 /* TCP tuning */
-#define TCP_MSS        32000U
-#define TCP_WND        64000U
-#define TCP_SNDLOWAT   32000U
-#define TCP_SND_BUF    64000U
+#define TCP_MSS      32000U
+#define TCP_WND      64000U
+#define TCP_SNDLOWAT 32000U
+#define TCP_SND_BUF  64000U
 
 #ifdef NDEBUG
 #define LWIP_DEBUG 0

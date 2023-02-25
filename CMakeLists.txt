@@ -33,12 +33,10 @@ add_executable(tun2sock-lwip
     lwip/tcp.c
     lwip/tcp_in.c
     lwip/tcp_out.c
-    lwip/timeouts.c
     lwip/udp.c
     main.c
     hook.c
     loop.c
-    sys.c
     direct.c
 )
 
