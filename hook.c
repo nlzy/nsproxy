@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 
 #include "direct.h"
+#include "socks.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
 
@@ -57,7 +58,7 @@ void udp_handle_event(void *userp, int event)
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
     pcb->recv = &udp_recv_cb;
-    direct_udp_create(&pcb->conn, netif_default->state, pcb, &udp_handle_event);
+    socks_udp_create(&pcb->conn, netif_default->state, pcb, &udp_handle_event);
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }
 
@@ -153,6 +154,6 @@ void hook_on_tcp_new(struct tcp_pcb *pcb)
     tcp_sent(pcb, &tcp_sent_cb);
     tcp_recv(pcb, &tcp_recv_cb);
 
-    direct_tcp_create(&pcb->conn, netif_default->state, pcb, &tcp_handle_event);
+    socks_tcp_create(&pcb->conn, netif_default->state, pcb, &tcp_handle_event);
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }
