@@ -44,30 +44,11 @@
 #include "lwip/memp.h"
 #include "lwip/pbuf.h"
 #include "lwip/netif.h"
-
-#if NWRAP_MODIFIED
 #include "lwip/ip.h"
 #include "lwip/udp.h"
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/ip6.h"
 #include "lwip/nd6.h"
-#else
-#include "lwip/sockets.h"
-#include "lwip/ip.h"
-#include "lwip/raw.h"
-#include "lwip/udp.h"
-#include "lwip/priv/tcp_priv.h"
-#include "lwip/igmp.h"
-#include "lwip/dns.h"
-#include "lwip/timeouts.h"
-#include "lwip/etharp.h"
-#include "lwip/ip6.h"
-#include "lwip/nd6.h"
-#include "lwip/mld6.h"
-#include "lwip/api.h"
-#include "netif/ppp/ppp_opts.h"
-#include "netif/ppp/ppp_impl.h"
-#endif
 
 #ifndef LWIP_SKIP_PACKING_CHECK
 
