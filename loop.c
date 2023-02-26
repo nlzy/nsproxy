@@ -246,7 +246,3 @@ int loop_epfd(struct context_loop *ctx)
 {
     return ctx->epfd;
 }
-
-void tcp_timer_needed()
-{
-}

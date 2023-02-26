@@ -500,9 +500,13 @@ s16_t tcp_pcbs_sane(void);
 #  define tcp_pcbs_sane() 1
 #endif /* TCP_DEBUG */
 
+#if NWRAP_MODIFIED
+static inline void tcp_timer_needed(void) {}
+#else
 /** External function (implemented in timers.c), called when TCP detects
  * that a timer is needed (i.e. active- or time-wait-pcb found). */
 void tcp_timer_needed(void);
+#endif
 
 void tcp_netif_ip_addr_changed(const ip_addr_t* old_addr, const ip_addr_t* new_addr);
 
