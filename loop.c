@@ -18,6 +18,7 @@
 
 #include "lwip/init.h"
 #include "lwip/ip.h"
+#include "lwip/nd6.h"
 #include "lwip/ip4_frag.h"
 #include "lwip/ip6_frag.h"
 #include "lwip/priv/tcp_priv.h"
@@ -223,13 +224,16 @@ int loop_run(struct context_loop *ctx)
                     perror("read()");
                     abort();
                 }
-                if (epoch % 4 == 0) {
-                    ip_reass_tmr();
-                    ip6_reass_tmr();
+                while (expired--) {
+                    if (epoch % 4 == 0) {
+                        udp_tmr();
+                        ip_reass_tmr();
+                        ip6_reass_tmr();
+                        nd6_tmr();
+                    }
+                    tcp_tmr();
+                    epoch++;
                 }
-                udp_tmr();
-                tcp_tmr();
-                epoch++;
             } else {
                 poller = ev[i].data.ptr;
                 poller->on_epoll_event(poller, ev[i].events);

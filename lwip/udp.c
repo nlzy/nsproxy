@@ -329,7 +329,7 @@ udp_input(struct pbuf *p, struct netif *inp)
     hook_on_udp_new(pcb);
   }
   if (pcb != NULL) {
-    pcb->gc = 120;
+    pcb->gc = pcb->local_port == 53 ? 30 : 120;
   }
 #endif
 
@@ -907,7 +907,7 @@ udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *d
   }
 
 #if NWRAP_MODIFIED
-  pcb->gc = 120;
+  pcb->gc = pcb->local_port == 53 ? 30 : 120;
 #endif
 
   /* Determine TTL to use */
