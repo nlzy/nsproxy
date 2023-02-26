@@ -42,6 +42,7 @@
 #define TCP_SNDLOWAT     32000U
 #define TCP_SND_BUF      64000U
 #define TCP_SND_QUEUELEN 32U
+#define TCP_OVERSIZE     0
 
 #ifdef NDEBUG
 #define LWIP_DEBUG 0

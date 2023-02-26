@@ -82,7 +82,8 @@ void tcp_handle_event(void *userp, int type)
         if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) + 4 > TCP_SND_QUEUELEN) {
             nread = -1;
         } else {
-            nread = conn->recv(conn, buffer, tcp_sndbuf(pcb));
+            nread = conn->recv(conn, buffer,
+                               LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb)));
         }
         if (nread > 0) {
             if (tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK) {
