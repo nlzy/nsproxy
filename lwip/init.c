@@ -51,7 +51,6 @@
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/ip6.h"
 #include "lwip/nd6.h"
-#include "lwip/api.h"
 #else
 #include "lwip/sockets.h"
 #include "lwip/ip.h"
@@ -355,7 +354,9 @@ lwip_init(void)
   sys_init();
 #endif /* !NO_SYS */
   mem_init();
+#if !NWRAP_MODIFIED
   memp_init();
+#endif
   pbuf_init();
   netif_init();
 #if LWIP_IPV4

@@ -44,6 +44,25 @@
 extern "C" {
 #endif
 
+#if NWRAP_MODIFIED
+
+#define MEMP_UDP_PCB        sizeof(struct udp_pcb)
+#define MEMP_TCP_PCB        sizeof(struct tcp_pcb)
+#define MEMP_TCP_PCB_LISTEN sizeof(struct tcp_pcb_listen)
+#define MEMP_TCP_SEG        sizeof(struct tcp_seg)
+#define MEMP_REASSDATA      sizeof(struct ip_reassdata)
+#define MEMP_FRAG_PBUF      sizeof(struct pbuf_custom_ref)
+#define MEMP_ND6_QUEUE      sizeof(struct nd6_q_entry)
+#define MEMP_IP6_REASSDATA  sizeof(struct ip6_reassdata)
+#define MEMP_PBUF           sizeof(struct pbuf)
+#define MEMP_PBUF_POOL (LWIP_MEM_ALIGN_SIZE(sizeof(struct pbuf)) + LWIP_MEM_ALIGN_SIZE(PBUF_POOL_BUFSIZE))
+
+#define memp_malloc(pool)    mem_malloc(pool)
+#define memp_free(pool, mem) mem_free(mem)
+#define mem_size_t           size_t
+
+#else /* NWRAP_MODIFIED */
+
 /* run once with empty definition to handle all custom includes in lwippools.h */
 #define LWIP_MEMPOOL(name,num,size,desc)
 #include "lwip/priv/memp_std.h"
@@ -147,6 +166,8 @@ void *memp_malloc_fn(memp_t type, const char* file, const int line);
 void *memp_malloc(memp_t type);
 #endif
 void  memp_free(memp_t type, void *mem);
+
+#endif /* NWRAP_MODIFIED */
 
 #ifdef __cplusplus
 }
