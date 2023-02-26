@@ -79,7 +79,7 @@ void tcp_handle_event(void *userp, int type)
     }
 
     if (type & EPOLLIN) {
-        if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) + 4 > TCP_SND_QUEUELEN) {
+        if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN - 4) {
             nread = -1;
         } else {
             nread = conn->recv(conn, buffer,
