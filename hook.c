@@ -79,7 +79,7 @@ void tcp_handle_event(void *userp, int type)
     }
 
     if (type & EPOLLIN) {
-        nread = tcp_sndqueuelen(pcb) == TCP_SND_QUEUELEN
+        nread = tcp_sndqueuelen(pcb) + 2 > TCP_SND_QUEUELEN
                     ? 0
                     : LWIP_MIN(sizeof(buffer), tcp_sndbuf(pcb));
         nread = conn->recv(conn, buffer, nread);
@@ -116,8 +116,7 @@ void tcp_handle_event(void *userp, int type)
 
 static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
-    if (len == pcb->snd_buf)
-        tcp_handle_event(pcb, EPOLLIN);
+    tcp_handle_event(pcb, EPOLLIN);
     return ERR_OK;
 }
 
@@ -138,6 +137,9 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
         conn->shutdown(conn, SHUT_WR);
         return ERR_OK;
     }
+
+    pcb->flags |= TF_ACK_NOW;
+    tcp_output(pcb);
 
     pbuf_copy_partial(p, pcb->rcvq + pcb->nrcvq, p->tot_len, 0);
     pcb->nrcvq += p->tot_len;

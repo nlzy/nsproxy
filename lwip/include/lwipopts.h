@@ -37,10 +37,11 @@
 #define LWIP_IPV6_AUTOCONFIG          0
 
 /* TCP tuning */
-#define TCP_MSS      32000U
-#define TCP_WND      64000U
-#define TCP_SNDLOWAT 32000U
-#define TCP_SND_BUF  64000U
+#define TCP_MSS          32000U
+#define TCP_WND          64000U
+#define TCP_SNDLOWAT     32000U
+#define TCP_SND_BUF      64000U
+#define TCP_SND_QUEUELEN 32U
 
 #ifdef NDEBUG
 #define LWIP_DEBUG 0
@@ -50,13 +51,14 @@
 
 /* Debug mode */
 #if LWIP_DEBUG
-#define IP_DEBUG     LWIP_DBG_OFF
-#define IP6_DEBUG    LWIP_DBG_OFF
-#define ICMP_DEBUG   LWIP_DBG_OFF
-#define TCP_DEBUG    LWIP_DBG_OFF
-#define UDP_DEBUG    LWIP_DBG_OFF
-#define NETIF_DEBUG  LWIP_DBG_OFF
-#define TIMERS_DEBUG LWIP_DBG_OFF
+#define IP_DEBUG         LWIP_DBG_OFF
+#define IP6_DEBUG        LWIP_DBG_OFF
+#define ICMP_DEBUG       LWIP_DBG_OFF
+#define TCP_DEBUG        LWIP_DBG_OFF
+#define UDP_DEBUG        LWIP_DBG_OFF
+#define NETIF_DEBUG      LWIP_DBG_OFF
+#define TIMERS_DEBUG     LWIP_DBG_OFF
+#define TCP_OUTPUT_DEBUG LWIP_DBG_OFF
 #endif
 
 #define SYS_ARCH_DECL_PROTECT(lev) (void)0
