@@ -15,6 +15,7 @@ int loop_epfd(struct context_loop *ctx);
 struct sk_ops {
     int (*connect)(struct sk_ops *handle, const char *addr, uint16_t port);
     int (*shutdown)(struct sk_ops *handle, int how);
+    void (*evctl)(struct sk_ops *handle, uint32_t event, int enable);
     ssize_t (*send)(struct sk_ops *handle, const char *data, size_t len);
     ssize_t (*recv)(struct sk_ops *handle, char *data, size_t len);
     void (*destroy)(struct sk_ops *handle);

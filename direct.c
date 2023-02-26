@@ -20,22 +20,10 @@ struct conn_direct {
     int sfd;
 };
 
-static void enable_event(struct conn_direct *h, int ev)
+void direct_io_event(struct ep_poller *poller, int event)
 {
-    h->ev.events |= ev;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-}
-
-static void disable_event(struct conn_direct *h, int ev)
-{
-    h->ev.events &= ~ev;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    struct conn_direct *h = container_of(poller, struct conn_direct, io_poller);
+    h->userev(h->userp, event);
 }
 
 int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
@@ -50,7 +38,7 @@ int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     }
 
     if (connect(h->sfd, (struct sockaddr *)&sa4, sizeof(sa4)) == -1) {
-        if (errno != EINPROGRESS) {
+        if (!is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
         }
@@ -72,7 +60,7 @@ int direct_shutdown(struct sk_ops *handle, int how)
     int ret;
 
     if ((ret = shutdown(h->sfd, how)) == -1) {
-        if (errno == ENOTCONN) {
+        if (is_ignored_skerr(errno)) {
             return -errno;
         } else {
             perror("shutdown()");
@@ -83,25 +71,33 @@ int direct_shutdown(struct sk_ops *handle, int how)
     return ret;
 }
 
+void direct_evctl(struct sk_ops *handle, uint32_t event, int enable)
+{
+    struct conn_direct *h = (struct conn_direct *)handle;
+    uint32_t old = h->ev.events;
+
+    if (enable) {
+        h->ev.events |= event;
+    } else {
+        h->ev.events &= ~event;
+    }
+
+    if (old != h->ev.events) {
+        if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->ev) == -1) {
+            perror("epoll_ctl()");
+            abort();
+        }
+    }
+}
+
 ssize_t direct_send(struct sk_ops *handle, const char *data, size_t size)
 {
     struct conn_direct *h = (struct conn_direct *)handle;
     ssize_t nsent;
 
-    if (size == 0) {
-        /* no data to send, stop report LOOP_EVENT_WR */
-        disable_event(h, EPOLLOUT);
-        return -EAGAIN;
-    }
-
     nsent = send(h->sfd, data, size, MSG_NOSIGNAL);
     if (nsent == -1) {
-        if (errno == EAGAIN) {
-            enable_event(h, EPOLLOUT);
-            nsent = -errno;
-        } else if (errno == ECONNRESET || errno == ECONNREFUSED ||
-                   errno == EPIPE || errno == ETIMEDOUT) {
-            disable_event(h, EPOLLOUT);
+        if (is_ignored_skerr(errno)) {
             nsent = -errno;
         } else {
             perror("send()");
@@ -121,41 +117,21 @@ ssize_t direct_recv(struct sk_ops *handle, char *data, size_t size)
     struct conn_direct *h = (struct conn_direct *)handle;
     ssize_t nread;
 
-    if (size == 0) {
-        /* no buffer to recv, stop report LOOP_EVENT_RD */
-        disable_event(h, EPOLLIN);
-        return -EAGAIN;
-    }
-
     nread = recv(h->sfd, data, size, 0);
     if (nread == -1) {
-        if (errno == EAGAIN) {
-            enable_event(h, EPOLLIN);
-            nread = -errno;
-        } else if (errno == ECONNRESET || errno == ECONNREFUSED ||
-                   errno == EPIPE || errno == ETIMEDOUT) {
-            disable_event(h, EPOLLIN);
+        if (is_ignored_skerr(errno)) {
             nread = -errno;
         } else {
-            perror("recv()");
+            perror("send()");
             abort();
         }
-    } else if (nread == 0) {
-        disable_event(h, EPOLLIN);
-    } /* - else return nread */
+    }
 
 #ifndef NDEBUG
     fprintf(stderr, "+++ direct %s %zd bytes.\n", h->desc, nread);
 #endif
 
     return nread;
-}
-
-void direct_io_event(struct ep_poller *poller, int event)
-{
-    struct conn_direct *h = container_of(poller, struct conn_direct, io_poller);
-
-    h->userev(h->userp, event);
 }
 
 void direct_destroy(struct sk_ops *handle)
@@ -168,7 +144,7 @@ void direct_destroy(struct sk_ops *handle)
     }
 
     if (shutdown(h->sfd, SHUT_RDWR) == -1) {
-        if (errno != ENOTCONN) {
+        if (!is_ignored_skerr(errno)) {
             perror("shutdown()");
             abort();
         }
@@ -202,6 +178,7 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 
     h->ops.connect = &direct_connect;
     h->ops.shutdown = &direct_shutdown;
+    h->ops.evctl = &direct_evctl;
     h->ops.send = &direct_send;
     h->ops.recv = &direct_recv;
     h->ops.destroy = &direct_destroy;
@@ -235,6 +212,7 @@ int direct_udp_create(struct sk_ops **handle, struct context_loop *ctx,
 
     h->ops.connect = &direct_connect;
     h->ops.shutdown = &direct_shutdown;
+    h->ops.evctl = &direct_evctl;
     h->ops.send = &direct_send;
     h->ops.recv = &direct_recv;
     h->ops.destroy = &direct_destroy;

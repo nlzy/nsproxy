@@ -5,9 +5,9 @@
 #include <sys/socket.h>
 
 #include "direct.h"
-#include "socks.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
+#include "socks.h"
 
 /* UDP */
 static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
@@ -46,7 +46,7 @@ void udp_handle_event(void *userp, int event)
     }
 
     if (event & EPOLLOUT) {
-        pcb->conn->send(pcb->conn, NULL, 0);
+        pcb->conn->evctl(pcb->conn, EPOLLOUT, 0);
     }
 
     if (event & (EPOLLERR | EPOLLHUP)) {
@@ -79,10 +79,11 @@ void tcp_handle_event(void *userp, int type)
     }
 
     if (type & EPOLLIN) {
-        nread = tcp_sndqueuelen(pcb) + 2 > TCP_SND_QUEUELEN
-                    ? 0
-                    : LWIP_MIN(sizeof(buffer), tcp_sndbuf(pcb));
-        nread = conn->recv(conn, buffer, nread);
+        if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) + 4 > TCP_SND_QUEUELEN) {
+            nread = -1;
+        } else {
+            nread = conn->recv(conn, buffer, tcp_sndbuf(pcb));
+        }
         if (nread > 0) {
             if (tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK) {
                 fprintf(stderr, "Out of Memory.\n");
@@ -91,19 +92,27 @@ void tcp_handle_event(void *userp, int type)
             tcp_output(pcb);
         } else if (nread == 0) {
             tcp_shutdown(pcb, 0, 1);
+        } else if (nread == -EAGAIN) {
+            conn->evctl(conn, EPOLLIN, 1);
         } else {
-            /* ERR, will handle in EPOLLERR, just continue*/
+            conn->evctl(conn, EPOLLIN, 0);
         }
     }
 
     if (type & EPOLLOUT) {
-        nsent = conn->send(conn, pcb->rcvq, pcb->nrcvq);
+        if (pcb->nrcvq == 0) {
+            nsent = -1;
+        } else {
+            nsent = conn->send(conn, pcb->rcvq, pcb->nrcvq);
+        }
         if (nsent > 0) {
             pcb->nrcvq -= nsent;
             memmove(pcb->rcvq, pcb->rcvq + nsent, pcb->nrcvq);
             tcp_recved(pcb, nsent);
+        } else if (nsent == -EAGAIN) {
+            conn->evctl(conn, EPOLLOUT, 1);
         } else {
-            /* ERR, will handle in EPOLLERR, just continue*/
+            conn->evctl(conn, EPOLLOUT, 0);
         }
     }
 
@@ -116,7 +125,11 @@ void tcp_handle_event(void *userp, int type)
 
 static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
-    tcp_handle_event(pcb, EPOLLIN);
+    struct sk_ops *conn = pcb->conn;
+
+    if (pcb->snd_buf > TCP_SNDLOWAT)
+        conn->evctl(conn, EPOLLIN, 1);
+
     return ERR_OK;
 }
 
