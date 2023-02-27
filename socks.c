@@ -78,7 +78,6 @@ void socks_handshake_phase_4(struct ep_poller *poller, int event)
         return;
     }
 
-
     h->ev.events = EPOLLIN | EPOLLOUT;
     h->io_poller.on_epoll_event = &socks_io_event;
     if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->ev) == -1) {

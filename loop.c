@@ -1,6 +1,5 @@
 #include "loop.h"
 
-#include <stdint.h>
 #include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -18,11 +17,11 @@
 
 #include "lwip/init.h"
 #include "lwip/ip.h"
-#include "lwip/nd6.h"
 #include "lwip/ip4_frag.h"
 #include "lwip/ip6_frag.h"
-#include "lwip/priv/tcp_priv.h"
+#include "lwip/nd6.h"
 #include "lwip/netif.h"
+#include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
 
