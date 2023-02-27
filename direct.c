@@ -13,14 +13,14 @@ struct conn_direct {
     struct sk_ops ops;
     struct ep_poller io_poller;
     struct context_loop *ctx;
-    void (*userev)(void *userp, int event);
+    void (*userev)(void *userp, unsigned int event);
     void *userp;
     struct epoll_event ev;
     char desc[32];
     int sfd;
 };
 
-void direct_io_event(struct ep_poller *poller, int event)
+void direct_io_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_direct *h = container_of(poller, struct conn_direct, io_poller);
     h->userev(h->userp, event);
@@ -159,7 +159,8 @@ void direct_destroy(struct sk_ops *handle)
 }
 
 int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
-                      void *userp, void (*userev)(void *userp, int event))
+                      void *userp,
+                      void (*userev)(void *userp, unsigned int event))
 {
     struct conn_direct *h;
 
@@ -193,7 +194,8 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 }
 
 int direct_udp_create(struct sk_ops **handle, struct context_loop *ctx,
-                      void *userp, void (*userev)(void *userp, int event))
+                      void *userp,
+                      void (*userev)(void *userp, unsigned int event))
 {
     struct conn_direct *h;
 

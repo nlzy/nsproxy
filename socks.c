@@ -24,7 +24,7 @@ struct conn_socks {
     struct sk_ops ops;
     struct ep_poller io_poller;
     struct context_loop *ctx;
-    void (*userev)(void *userp, int event);
+    void (*userev)(void *userp, unsigned int event);
     void *userp;
     struct epoll_event ev;
 
@@ -51,13 +51,13 @@ struct socks5hdr {
     uint8_t atyp;
 };
 
-void socks_io_event(struct ep_poller *poller, int event)
+void socks_io_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
     h->userev(h->userp, event);
 }
 
-void socks_handshake_phase_4(struct ep_poller *poller, int event)
+void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
     char methods[64];
@@ -86,7 +86,7 @@ void socks_handshake_phase_4(struct ep_poller *poller, int event)
     }
 }
 
-void socks_handshake_phase_3(struct ep_poller *poller, int event)
+void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
     char request[] = { 5, 1, 0, 1, 0, 0, 0, 0, 0, 0 };
@@ -114,7 +114,7 @@ void socks_handshake_phase_3(struct ep_poller *poller, int event)
     }
 }
 
-void socks_handshake_phase_2(struct ep_poller *poller, int event)
+void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
     char methods[64];
@@ -143,7 +143,7 @@ void socks_handshake_phase_2(struct ep_poller *poller, int event)
     }
 }
 
-void socks_handshake_phase_1(struct ep_poller *poller, int event)
+void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
     char methods[] = { 5, 1, 0 };
@@ -346,7 +346,8 @@ void socks_destroy(struct sk_ops *handle)
 }
 
 int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
-                     void *userp, void (*userev)(void *userp, int event))
+                     void *userp,
+                     void (*userev)(void *userp, unsigned int event))
 {
     struct conn_socks *h;
 
@@ -378,7 +379,8 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 }
 
 int socks_udp_create(struct sk_ops **handle, struct context_loop *ctx,
-                     void *userp, void (*userev)(void *userp, int event))
+                     void *userp,
+                     void (*userev)(void *userp, unsigned int event))
 {
     struct conn_socks *h;
 

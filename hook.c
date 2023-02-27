@@ -26,7 +26,7 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     pbuf_free(p);
 }
 
-void udp_handle_event(void *userp, int event)
+void udp_handle_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
     char buffer[65535];
@@ -64,21 +64,21 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
 /* TCP */
 
-void tcp_handle_event(void *userp, int type)
+void tcp_handle_event(void *userp, unsigned int event)
 {
     struct tcp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
     ssize_t nread, nsent;
     char buffer[TCP_SND_BUF];
 
-    if (type & EPOLLERR) {
+    if (event & EPOLLERR) {
         conn->destroy(conn);
         pcb->conn = NULL;
         tcp_abort(pcb);
         return;
     }
 
-    if (type & EPOLLIN) {
+    if (event & EPOLLIN) {
         if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN - 4) {
             nread = -1;
         } else {
@@ -100,7 +100,7 @@ void tcp_handle_event(void *userp, int type)
         }
     }
 
-    if (type & EPOLLOUT) {
+    if (event & EPOLLOUT) {
         if (pcb->nrcvq == 0) {
             nsent = -1;
         } else {
@@ -117,7 +117,7 @@ void tcp_handle_event(void *userp, int type)
         }
     }
 
-    if (type & EPOLLHUP) {
+    if (event & EPOLLHUP) {
         conn->destroy(conn);
         pcb->conn = NULL;
         tcp_close(pcb);

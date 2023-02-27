@@ -22,5 +22,5 @@ struct sk_ops {
 };
 
 struct ep_poller {
-    void (*on_epoll_event)(struct ep_poller *poller, int event);
+    void (*on_epoll_event)(struct ep_poller *poller, unsigned int event);
 };
