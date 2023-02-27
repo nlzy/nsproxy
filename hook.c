@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 
 #include "direct.h"
+#include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
 #include "socks.h"
@@ -152,8 +153,7 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
         return ERR_OK;
     }
 
-    pcb->flags |= TF_ACK_NOW;
-    tcp_output(pcb);
+    tcp_ack(pcb);
 
     pbuf_copy_partial(p, pcb->rcvq + pcb->nrcvq, p->tot_len, 0);
     pcb->nrcvq += p->tot_len;
