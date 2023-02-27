@@ -12,14 +12,6 @@
 
 #include "loop.h"
 
-enum {
-    SOCKSS_SEND_METHODS,
-    SOCKSS_RECV_METHOD,
-    SOCKSS_SEND_REQUEST,
-    SOCKSS_RECV_REPLIES,
-    SOCKSS_FORWARD
-};
-
 struct conn_socks {
     struct sk_ops ops;
     struct ep_poller io_poller;
@@ -178,7 +170,7 @@ int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     sa.sin_port = htobe16(1081);
 
     if (connect(h->sfd, (struct sockaddr *)&sa, sizeof(sa)) == -1) {
-        if (errno != EINPROGRESS) {
+        if (is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
         }
@@ -209,8 +201,12 @@ int socks_shutdown(struct sk_ops *handle, int how)
     struct conn_socks *h = (struct conn_socks *)handle;
     int ret;
 
+    if (h->io_poller.on_epoll_event != &socks_io_event) {
+        return -ENOTCONN;
+    }
+
     if ((ret = shutdown(h->sfd, how)) == -1) {
-        if (errno == ENOTCONN) {
+        if (is_ignored_skerr(errno)) {
             return -errno;
         } else {
             perror("shutdown()");
@@ -225,6 +221,10 @@ void socks_evctl(struct sk_ops *handle, uint32_t event, int enable)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
     uint32_t old = h->ev.events;
+
+    if (h->io_poller.on_epoll_event != &socks_io_event) {
+        return;
+    }
 
     if (enable) {
         h->ev.events |= event;
@@ -249,6 +249,10 @@ ssize_t socks_send(struct sk_ops *handle, const char *data, size_t size)
     size_t s;
     struct socks5hdr hdr = { 0 };
     struct sockaddr_in sa;
+
+    if (h->io_poller.on_epoll_event != &socks_io_event) {
+        return -EAGAIN;
+    }
 
     if (h->isudp) {
         if (size + 10 > sizeof(buffer)) {
@@ -293,6 +297,10 @@ ssize_t socks_recv(struct sk_ops *handle, char *data, size_t size)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
     ssize_t nread;
+
+    if (h->io_poller.on_epoll_event != &socks_io_event) {
+        return -EAGAIN;
+    }
 
     nread = recv(h->sfd, data, size, 0);
     if (nread == -1) {
