@@ -184,6 +184,7 @@ void loop_deinit(struct context_loop *ctx)
     close(ctx->tunfd);
     close(ctx->sigfd);
     close(ctx->timerfd);
+    netif_remove(ctx->tunif);
     free(ctx->tunif);
     free(ctx);
 }
