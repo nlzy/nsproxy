@@ -47,14 +47,14 @@ static void write_string(const char *fname, const char *str)
 void map_uid(unsigned from, unsigned to)
 {
     char str[32];
-    snprintf(str, sizeof(str), "%d %d 1\n", from, to);
+    snprintf(str, sizeof(str), "%u %u 1\n", from, to);
     write_string("/proc/self/uid_map", str);
 }
 
 void map_gid(unsigned from, unsigned to)
 {
     char str[32];
-    snprintf(str, sizeof(str), "%d %d 1\n", from, to);
+    snprintf(str, sizeof(str), "%u %u 1\n", from, to);
     write_string("/proc/self/gid_map", str);
 }
 
@@ -265,17 +265,21 @@ int child(int sk, char *cmd[])
 {
     int tunfd;
     char dummy;
+    uid_t uid, gid;
+
+    uid = getuid();
+    gid = getgid();
 
     if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
         perror("unshare()");
         abort();
     }
 
-    map_uid(0, 1000);
+    map_uid(uid, uid);
 
     set_setgroups("deny");
 
-    map_gid(0, 1000);
+    map_gid(gid, gid);
 
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
