@@ -298,8 +298,8 @@ int child(int sk, char *cmd[])
 
     close(sk);
 
-    if (execv(cmd[0], cmd) == -1) {
-        perror("execv()");
+    if (execvp(cmd[0], cmd) == -1) {
+        perror("execvp()");
         abort();
     }
 
