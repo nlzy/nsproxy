@@ -170,7 +170,7 @@ int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     sa.sin_port = htobe16(1081);
 
     if (connect(h->sfd, (struct sockaddr *)&sa, sizeof(sa)) == -1) {
-        if (is_ignored_skerr(errno)) {
+        if (!is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
         }
