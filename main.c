@@ -275,10 +275,9 @@ int child(int sk, char *cmd[])
         abort();
     }
 
-    map_uid(uid, uid);
-
     set_setgroups("deny");
 
+    map_uid(uid, uid);
     map_gid(gid, gid);
 
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
