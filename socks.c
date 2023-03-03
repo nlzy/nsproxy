@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -163,18 +164,27 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
-    struct sockaddr_in sa = { .sin_family = AF_INET };
+    struct addrinfo hints = { .ai_family = AF_UNSPEC };
+    struct addrinfo *result;
+    int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
 
     /* FIXME: make configurable */
-    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
-    sa.sin_port = htobe16(1081);
+    getaddrinfo("127.0.0.1", "1081", &hints, &result);
 
-    if (connect(h->sfd, (struct sockaddr *)&sa, sizeof(sa)) == -1) {
+    if ((h->sfd = socket(result->ai_family,
+                         sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
+        perror("socket()");
+        abort();
+    }
+
+    if (connect(h->sfd, result->ai_addr, result->ai_addrlen) == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
         }
     }
+
+    freeaddrinfo(result);
 
     if (h->isudp) {
         h->io_poller.on_epoll_event = &socks_io_event;
@@ -364,12 +374,6 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
         abort();
     }
 
-    if ((h->sfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                         IPPROTO_TCP)) == -1) {
-        perror("socket()");
-        abort();
-    }
-
     snprintf(h->desc, sizeof(h->desc), "TCP");
 
     h->ops.connect = &socks_connect;
@@ -378,6 +382,8 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
     h->ops.send = &socks_send;
     h->ops.recv = &socks_recv;
     h->ops.destroy = &socks_destroy;
+
+    h->isudp = 0;
 
     h->ctx = ctx;
     h->userev = userev;
@@ -394,12 +400,6 @@ int socks_udp_create(struct sk_ops **handle, struct context_loop *ctx,
 
     if ((h = calloc(1, sizeof(struct conn_socks))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
-        abort();
-    }
-
-    if ((h->sfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                         IPPROTO_UDP)) == -1) {
-        perror("socket()");
         abort();
     }
 
