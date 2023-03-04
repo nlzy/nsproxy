@@ -30,12 +30,20 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void udp_handle_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
+    struct sk_ops *conn = pcb->conn;
     char buffer[65535];
     ssize_t nread;
     struct pbuf *p;
 
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        conn->destroy(conn);
+        pcb->conn = NULL;
+        udp_remove(pcb);
+        return;
+    }
+
     if (event & EPOLLIN) {
-        nread = pcb->conn->recv(pcb->conn, buffer, sizeof(buffer));
+        nread = conn->recv(conn, buffer, sizeof(buffer));
         if (nread > 0) {
             if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
                 fprintf(stderr, "Out of Memory.\n");
@@ -47,12 +55,7 @@ void udp_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLOUT) {
-        pcb->conn->evctl(pcb->conn, EPOLLOUT, 0);
-    }
-
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        /* no op, timer will release this pcb */
-        return;
+        conn->evctl(conn, EPOLLOUT, 0);
     }
 }
 
