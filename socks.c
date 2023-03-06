@@ -169,7 +169,8 @@ int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
 
     /* FIXME: make configurable */
-    getaddrinfo("127.0.0.1", "1081", &hints, &result);
+    /* FIXME: make non block */
+    getaddrinfo(CONFIG_SOCK_ADDR, CONFIG_SOCK_PORT, &hints, &result);
 
     if ((h->sfd = socket(result->ai_family,
                          sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {

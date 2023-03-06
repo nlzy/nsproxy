@@ -64,7 +64,13 @@ void hook_on_udp_new(struct udp_pcb *pcb)
     pcb->recv = &udp_recv_cb;
     socks_udp_create(&pcb->conn, ip_current_netif()->state, pcb,
                      &udp_handle_event);
-    pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
+    if (pcb->local_port == 53) {
+        /* TODO: make configurable */
+        pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
+    } else {
+        pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip),
+                           pcb->local_port);
+    }
 }
 
 /* TCP */
