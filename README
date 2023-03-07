@@ -1,0 +1,42 @@
+nsproxy
+====================
+
+nsproxy is a Linux-specific command-line tool, makes any application force to
+use a specific socks5 proxy.
+
+Functionally similar to tsocks / proxychains-ng / graftcp, but using a
+completely different mechanism. It has the following features:
+
+ - Works on static linked application.
+ - Support UDP protocol.
+ - No privilege required.
+
+
+USAGE
+----------
+
+nsproxy [-s <server>] [-p <port>] [-d <dns>] [command]
+
+examples:
+
+ $ nsproxy curl https://api.ipify.org
+ $ nsproxy -s 127.0.0.1 -p 1080 -d 8.8.8.8 nslookup google.com
+
+
+KNOWN ISSUE
+----------
+
+All {uid,gid} except the current user will be mapped to
+/proc/sys/kernel/overflow{uid,gid}
+
+That's means su / sudo will not work, and owner of files except the current
+user will be shown as 'nobody'.
+
+W.I.P
+----------
+
+ - IPv6 support
+ - HTTP proxy server support
+ - fullcone NAT
+ - fake DNS
+

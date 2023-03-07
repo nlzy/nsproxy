@@ -500,7 +500,7 @@ s16_t tcp_pcbs_sane(void);
 #  define tcp_pcbs_sane() 1
 #endif /* TCP_DEBUG */
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 static inline void tcp_timer_needed(void) {}
 #else
 /** External function (implemented in timers.c), called when TCP detects

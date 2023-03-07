@@ -51,7 +51,7 @@
 #include "lwip/ip6.h"
 #include "lwip/ip6_addr.h"
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 #include "loop.h"
 #endif
 
@@ -391,7 +391,7 @@ struct tcp_pcb {
   u8_t rcv_scale;
 #endif
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
   struct sk_ops *conn;
   char rcvq[TCP_WND];
   size_t nrcvq;

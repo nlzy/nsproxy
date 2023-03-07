@@ -74,4 +74,4 @@
 #define lwip_itoa(result, bufsize, number) \
     snprintf(result, bufsize, "%d", number)
 
-#define NWRAP_MODIFIED 1
+#define NSPROXY_MODIFIED 1

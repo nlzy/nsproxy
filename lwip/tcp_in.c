@@ -59,7 +59,7 @@
 #include "lwip/nd6.h"
 #endif /* LWIP_ND6_TCP_REACHABILITY_HINTS */
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 #include "hook.h"
 #endif
 
@@ -109,13 +109,13 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* TCP_OOSEQ_BYTES_LIMIT || TCP_OOSEQ_PBUFS_LIMIT */
 #endif /* LWIP_TCP_SACK_OUT */
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
   hook_on_tcp_new(newpcb);
   return 0;
 }
-static struct tcp_pcb_listen nwrap_fake_lpcb = { .accept = &on_tcp_accept };
+static struct tcp_pcb_listen nsproxy_fake_lpcb = { .accept = &on_tcp_accept };
 #endif
 
 /**
@@ -412,11 +412,11 @@ tcp_input(struct pbuf *p, struct netif *inp)
   }
 #endif
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
   if (pcb == NULL) {
-    ip_addr_copy(nwrap_fake_lpcb.local_ip, *ip_current_dest_addr());
-    nwrap_fake_lpcb.local_port = tcphdr->dest;
-    tcp_listen_input(&nwrap_fake_lpcb);
+    ip_addr_copy(nsproxy_fake_lpcb.local_ip, *ip_current_dest_addr());
+    nsproxy_fake_lpcb.local_port = tcphdr->dest;
+    tcp_listen_input(&nsproxy_fake_lpcb);
     pbuf_free(p);
     return;
   }

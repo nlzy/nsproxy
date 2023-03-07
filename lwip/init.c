@@ -335,7 +335,7 @@ lwip_init(void)
   sys_init();
 #endif /* !NO_SYS */
   mem_init();
-#if !NWRAP_MODIFIED
+#if !NSPROXY_MODIFIED
   memp_init();
 #endif
   pbuf_init();

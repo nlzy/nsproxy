@@ -49,7 +49,7 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/prot/udp.h"
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 #include "loop.h"
 #endif
 
@@ -115,7 +115,7 @@ struct udp_pcb {
   /** user-supplied argument for the recv callback */
   void *recv_arg;
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
   struct sk_ops *conn;
   size_t gc;
 #endif
@@ -193,7 +193,7 @@ void udp_debug_print(struct udp_hdr *udphdr);
 #define udp_debug_print(udphdr)
 #endif
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 void udp_tmr(void);
 #endif
 

@@ -69,7 +69,7 @@ typedef u16_t mem_size_t;
 #endif /* MEM_SIZE > 64000 */
 #endif
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 
 #define mem_init()              (void)0
 #define mem_trim(mem, size)     (mem)
@@ -77,7 +77,7 @@ typedef u16_t mem_size_t;
 #define mem_calloc(count, size) calloc(count, size)
 #define mem_free(mem)           free(mem)
 
-#else /* NWRAP_MODIFIED */
+#else /* NSPROXY_MODIFIED */
 
 void  mem_init(void);
 void *mem_trim(void *mem, mem_size_t size);
@@ -85,7 +85,7 @@ void *mem_malloc(mem_size_t size);
 void *mem_calloc(mem_size_t count, mem_size_t size);
 void  mem_free(void *mem);
 
-#endif /* NWRAP_MODIFIED */
+#endif /* NSPROXY_MODIFIED */
 
 #ifdef __cplusplus
 }

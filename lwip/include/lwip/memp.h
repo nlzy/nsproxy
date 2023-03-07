@@ -44,7 +44,7 @@
 extern "C" {
 #endif
 
-#if NWRAP_MODIFIED
+#if NSPROXY_MODIFIED
 
 #define MEMP_UDP_PCB        sizeof(struct udp_pcb)
 #define MEMP_TCP_PCB        sizeof(struct tcp_pcb)
@@ -61,7 +61,7 @@ extern "C" {
 #define memp_free(pool, mem) mem_free(mem)
 #define mem_size_t           size_t
 
-#else /* NWRAP_MODIFIED */
+#else /* NSPROXY_MODIFIED */
 
 /* run once with empty definition to handle all custom includes in lwippools.h */
 #define LWIP_MEMPOOL(name,num,size,desc)
@@ -167,7 +167,7 @@ void *memp_malloc(memp_t type);
 #endif
 void  memp_free(memp_t type, void *mem);
 
-#endif /* NWRAP_MODIFIED */
+#endif /* NSPROXY_MODIFIED */
 
 #ifdef __cplusplus
 }
