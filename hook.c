@@ -104,6 +104,7 @@ void tcp_handle_event(void *userp, unsigned int event)
             tcp_output(pcb);
         } else if (nread == 0) {
             tcp_shutdown(pcb, 0, 1);
+            conn->evctl(conn, EPOLLIN, 0);
         } else if (nread == -EAGAIN) {
             conn->evctl(conn, EPOLLIN, 1);
         } else {
@@ -139,7 +140,8 @@ static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
     struct sk_ops *conn = pcb->conn;
 
-    if (pcb->snd_buf > TCP_SNDLOWAT)
+    if ((pcb->state == ESTABLISHED || pcb->state == CLOSE_WAIT) &&
+        tcp_sndbuf(pcb) > TCP_SNDLOWAT)
         conn->evctl(conn, EPOLLIN, 1);
 
     return ERR_OK;
