@@ -8,7 +8,7 @@ Functionally similar to tsocks / proxychains-ng / graftcp, but using a
 completely different mechanism. It has the following features:
 
  - Works on static linked application.
- - Support UDP protocol.
+ - Supported UDP protocol.
  - No privilege required.
 
 
@@ -29,8 +29,8 @@ KNOWN ISSUE
 All {uid,gid} except the current user will be mapped to
 /proc/sys/kernel/overflow{uid,gid}
 
-That's means su / sudo will not work, and owner of files except the current
-user will be shown as 'nobody'.
+That's means file owners except the current user will be shown as 'nobody',
+and program like sudo / su will not work.
 
 W.I.P
 ----------
