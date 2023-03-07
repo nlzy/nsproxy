@@ -62,8 +62,8 @@ void udp_handle_event(void *userp, unsigned int event)
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
     pcb->recv = &udp_recv_cb;
-    socks_udp_create(&pcb->conn, ip_current_netif()->state, pcb,
-                     &udp_handle_event);
+    socks_udp_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
+                     pcb);
     if (pcb->local_port == 53) {
         /* TODO: make configurable */
         pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
@@ -180,7 +180,7 @@ void hook_on_tcp_new(struct tcp_pcb *pcb)
     tcp_sent(pcb, &tcp_sent_cb);
     tcp_recv(pcb, &tcp_recv_cb);
 
-    socks_tcp_create(&pcb->conn, ip_current_netif()->state, pcb,
-                     &tcp_handle_event);
+    socks_tcp_create(&pcb->conn, ip_current_netif()->state, &tcp_handle_event,
+                     pcb);
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }

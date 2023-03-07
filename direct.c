@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/epoll.h>
@@ -16,6 +17,7 @@ struct conn_direct {
     void (*userev)(void *userp, unsigned int event);
     void *userp;
     struct epoll_event ev;
+    int isudp;
     char desc[32];
     int sfd;
 };
@@ -29,21 +31,31 @@ void direct_io_event(struct ep_poller *poller, unsigned int event)
 int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
     struct conn_direct *h = (struct conn_direct *)handle;
-    struct sockaddr_in sa4 = { .sin_family = AF_INET,
-                               .sin_port = htobe16(port) };
+    struct addrinfo hints = { .ai_family = AF_UNSPEC };
+    struct addrinfo *result;
+    char strport[8];
+    int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
 
-    if (inet_pton(AF_INET, addr, &sa4.sin_addr) == 0) {
-        fprintf(stderr, "direct_connect: invaild argument: addr\n");
+    snprintf(strport, sizeof(strport), "%u", (unsigned int)port);
+
+    getaddrinfo(addr, strport, &hints, &result);
+
+    if ((h->sfd = socket(result->ai_family,
+                         sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
+        perror("socket()");
         abort();
     }
 
-    if (connect(h->sfd, (struct sockaddr *)&sa4, sizeof(sa4)) == -1) {
+    if (connect(h->sfd, result->ai_addr, result->ai_addrlen) == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
         }
     }
 
+    freeaddrinfo(result);
+
+    h->io_poller.on_epoll_event = &direct_io_event;
     h->ev.events = EPOLLIN | EPOLLOUT;
     h->ev.data.ptr = &h->io_poller;
     if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_ADD, h->sfd, &h->ev) == -1) {
@@ -158,9 +170,7 @@ void direct_destroy(struct sk_ops *handle)
     free(h);
 }
 
-int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
-                      void *userp,
-                      void (*userev)(void *userp, unsigned int event))
+struct conn_direct *direct_create_internel()
 {
     struct conn_direct *h;
 
@@ -169,14 +179,6 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
         abort();
     }
 
-    if ((h->sfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                         IPPROTO_TCP)) == -1) {
-        perror("socket()");
-        abort();
-    }
-
-    snprintf(h->desc, sizeof(h->desc), "TCP");
-
     h->ops.connect = &direct_connect;
     h->ops.shutdown = &direct_shutdown;
     h->ops.evctl = &direct_evctl;
@@ -184,7 +186,17 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
     h->ops.recv = &direct_recv;
     h->ops.destroy = &direct_destroy;
 
-    h->io_poller.on_epoll_event = &direct_io_event;
+    return h;
+}
+
+int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
+                      void (*userev)(void *userp, unsigned int event),
+                      void *userp)
+{
+    struct conn_direct *h = direct_create_internel();
+
+    snprintf(h->desc, sizeof(h->desc), "TCP");
+    h->isudp = 0;
 
     h->ctx = ctx;
     h->userev = userev;
@@ -194,32 +206,13 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 }
 
 int direct_udp_create(struct sk_ops **handle, struct context_loop *ctx,
-                      void *userp,
-                      void (*userev)(void *userp, unsigned int event))
+                      void (*userev)(void *userp, unsigned int event),
+                      void *userp)
 {
-    struct conn_direct *h;
-
-    if ((h = malloc(sizeof(struct conn_direct))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
-        abort();
-    }
-
-    if ((h->sfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                         IPPROTO_UDP)) == -1) {
-        perror("socket()");
-        abort();
-    }
+    struct conn_direct *h = direct_create_internel();
 
     snprintf(h->desc, sizeof(h->desc), "UDP");
-
-    h->ops.connect = &direct_connect;
-    h->ops.shutdown = &direct_shutdown;
-    h->ops.evctl = &direct_evctl;
-    h->ops.send = &direct_send;
-    h->ops.recv = &direct_recv;
-    h->ops.destroy = &direct_destroy;
-
-    h->io_poller.on_epoll_event = &direct_io_event;
+    h->isudp = 1;
 
     h->ctx = ctx;
     h->userev = userev;

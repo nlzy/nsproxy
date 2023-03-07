@@ -364,9 +364,7 @@ void socks_destroy(struct sk_ops *handle)
     free(h);
 }
 
-int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
-                     void *userp,
-                     void (*userev)(void *userp, unsigned int event))
+struct conn_socks *socks_create_internal()
 {
     struct conn_socks *h;
 
@@ -375,8 +373,6 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
         abort();
     }
 
-    snprintf(h->desc, sizeof(h->desc), "TCP");
-
     h->ops.connect = &socks_connect;
     h->ops.shutdown = &socks_shutdown;
     h->ops.evctl = &socks_evctl;
@@ -384,6 +380,16 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
     h->ops.recv = &socks_recv;
     h->ops.destroy = &socks_destroy;
 
+    return h;
+}
+
+int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
+                     void (*userev)(void *userp, unsigned int event),
+                     void *userp)
+{
+    struct conn_socks *h = socks_create_internal();
+
+    snprintf(h->desc, sizeof(h->desc), "TCP");
     h->isudp = 0;
 
     h->ctx = ctx;
@@ -394,25 +400,12 @@ int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 }
 
 int socks_udp_create(struct sk_ops **handle, struct context_loop *ctx,
-                     void *userp,
-                     void (*userev)(void *userp, unsigned int event))
+                     void (*userev)(void *userp, unsigned int event),
+                     void *userp)
 {
-    struct conn_socks *h;
-
-    if ((h = calloc(1, sizeof(struct conn_socks))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
-        abort();
-    }
+    struct conn_socks *h = socks_create_internal();
 
     snprintf(h->desc, sizeof(h->desc), "UDP");
-
-    h->ops.connect = &socks_connect;
-    h->ops.shutdown = &socks_shutdown;
-    h->ops.evctl = &socks_evctl;
-    h->ops.send = &socks_send;
-    h->ops.recv = &socks_recv;
-    h->ops.destroy = &socks_destroy;
-
     h->isudp = 1;
 
     h->ctx = ctx;
