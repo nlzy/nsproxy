@@ -4,10 +4,12 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
-#include "direct.h"
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
+
+#include "direct.h"
+#include "fakedns.h"
 #include "socks.h"
 
 /* UDP */
@@ -15,7 +17,6 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                         const ip_addr_t *addr, u16_t port)
 {
     char buffer[65535];
-    struct pbuf *ptr;
 
     if (p->len == p->tot_len) {
         pcb->conn->send(pcb->conn, p->payload, p->tot_len);
@@ -62,12 +63,15 @@ void udp_handle_event(void *userp, unsigned int event)
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
     pcb->recv = &udp_recv_cb;
-    socks_udp_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
-                     pcb);
+
+    /* TODO: make configurable */
     if (pcb->local_port == 53) {
-        /* TODO: make configurable */
+        fakedns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
+                       pcb);
         pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
     } else {
+        socks_udp_create(&pcb->conn, ip_current_netif()->state,
+                         &udp_handle_event, pcb);
         pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip),
                            pcb->local_port);
     }
