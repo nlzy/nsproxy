@@ -66,7 +66,7 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
     /* TODO: make configurable */
     if (pcb->local_port == 53) {
-        fakedns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
+        tcpdns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
                        pcb);
         pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
     } else {
