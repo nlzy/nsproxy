@@ -156,44 +156,102 @@ ssize_t dns_query_get(struct dnsquery *q, const char *buffer, size_t size)
     return cur - buffer;
 }
 
-ssize_t dns_answer_put(char *buffer, size_t size, const struct dnsanswer *a)
+ssize_t dns_answer_put(char *buffer, size_t size, const struct dnsanswer *ans)
 {
     char *cur = buffer;
-    size_t namelen = strlen(a->name) + 1;
-    uint16_t typebe = htobe16(a->type);
-    uint16_t classbe = htobe16(a->class);
-    uint32_t ttlbe = htobe32(a->ttl);
-    uint16_t rlbe = htobe16(a->rl);
+    size_t namelen = strlen(ans->name) + 1;
+    uint16_t typebe = htobe16(ans->type);
+    uint16_t classbe = htobe16(ans->class);
+    uint32_t ttlbe = htobe32(ans->ttl);
+    uint16_t rlbe = htobe16(ans->rl);
 
-    if (namelen + sizeof(a->type) + sizeof(a->class) + sizeof(a->ttl) +
-            sizeof(a->rl) + a->rl >
+    if (namelen + sizeof(ans->type) + sizeof(ans->class) + sizeof(ans->ttl) +
+            sizeof(ans->rl) + ans->rl >
         size) {
         return -1;
     }
 
     /* put name field */
-    memcpy(cur, a->name, namelen);
+    memcpy(cur, ans->name, namelen);
     cur += namelen;
 
     /* put type field */
-    memcpy(cur, &typebe, sizeof(a->type));
-    cur += sizeof(a->type);
+    memcpy(cur, &typebe, sizeof(ans->type));
+    cur += sizeof(ans->type);
 
     /* put class field */
-    memcpy(cur, &classbe, sizeof(a->class));
-    cur += sizeof(a->class);
+    memcpy(cur, &classbe, sizeof(ans->class));
+    cur += sizeof(ans->class);
 
     /* put ttl field */
-    memcpy(cur, &ttlbe, sizeof(a->ttl));
-    cur += sizeof(a->ttl);
+    memcpy(cur, &ttlbe, sizeof(ans->ttl));
+    cur += sizeof(ans->ttl);
 
     /* put rl field */
-    memcpy(cur, &rlbe, sizeof(a->rl));
-    cur += sizeof(a->rl);
+    memcpy(cur, &rlbe, sizeof(ans->rl));
+    cur += sizeof(ans->rl);
 
     /* put resource field */
-    memcpy(cur, a->resource, a->rl);
-    cur += a->rl;
+    memcpy(cur, ans->resource, ans->rl);
+    cur += ans->rl;
+
+    return cur - buffer;
+}
+
+ssize_t dns_answer_get(struct dnsanswer *ans, const char *buffer, size_t size)
+{
+    const char *cur = buffer;
+    uint8_t c, t;
+
+    if (size == 0)
+        return -1;
+
+    /* traverse name field */
+    for (;;) {
+        c = *cur % 64;
+        cur += 1;
+        if (c == 0)
+            break;
+        if ((cur - buffer) + c + 1 > (ssize_t)size)
+            return -1;
+        cur += c;
+    }
+    if (cur - buffer > (ssize_t)sizeof(ans->name))
+        return -1; /* name too long */
+
+    /* copy name field */
+    memcpy(ans->name, buffer, cur - buffer);
+
+    /* copy type / class / ttl / rl fields */
+    if (cur - buffer + sizeof(ans->type) + sizeof(ans->class) +
+            sizeof(ans->ttl) + sizeof(ans->rl) >
+        size)
+        return -1;
+
+    memcpy(&ans->type, cur, sizeof(ans->type));
+    cur += sizeof(ans->type);
+
+    memcpy(&ans->class, cur, sizeof(ans->class));
+    cur += sizeof(ans->class);
+
+    memcpy(&ans->ttl, cur, sizeof(ans->ttl));
+    cur += sizeof(ans->ttl);
+
+    memcpy(&ans->rl, cur, sizeof(ans->rl));
+    cur += sizeof(ans->rl);
+
+    ans->type = be16toh(ans->type);
+    ans->class = be16toh(ans->class);
+    ans->ttl = be32toh(ans->ttl);
+    ans->rl = be16toh(ans->rl);
+
+    /* copy resource */
+    if (cur - buffer + ans->rl > (ssize_t)size)
+        return -1;
+    if (ans->rl > sizeof(ans->resource))
+        return -1;
+    memcpy(ans->resource, cur, ans->rl);
+    cur += ans->rl;
 
     return cur - buffer;
 }
@@ -225,7 +283,9 @@ void fakedns_evctl(struct sk_ops *handle, uint32_t event, int enable)
 ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
 {
     struct conn_fakedns *h = container_of(handle, struct conn_fakedns, ops);
+    struct dnsanswer ans;
     size_t offset = 0;
+    size_t i;
     ssize_t ret;
 
     /* copy and check dnshdr */
@@ -242,8 +302,7 @@ ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
     if (h->hdr.numquestions != 1)
         return -EAGAIN; /* not a single query */
 
-    if (h->hdr.numanswers != 0 || h->hdr.numauthrr != 0 ||
-        h->hdr.numextrarr != 0)
+    if (h->hdr.numanswers != 0 || h->hdr.numauthrr != 0)
         return -EAGAIN; /* malformed query */
 
     /* copy and check dnsquery */
@@ -251,12 +310,21 @@ ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
         return -EAGAIN;
     offset += ret;
 
+    /* TODO: IPv6 AAAA query */
     if (h->query.type != 1 || h->query.class != 1)
         return -EAGAIN; /* not IPv4 A query */
+
+    for (i = 0; i < h->hdr.numextrarr; i++) {
+        if ((ret = dns_answer_get(&ans, data + offset, size)) == -1)
+            return -EAGAIN;
+        offset += ret;
+    }
 
     /* length check */
     if (offset != size)
         return -EAGAIN;
+
+    h->userev(h->userp, EPOLLIN);
 
     return size;
 }
