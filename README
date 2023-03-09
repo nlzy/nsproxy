@@ -9,6 +9,7 @@ completely different mechanism. It has the following features:
 
  - Works on static linked application.
  - Supported UDP protocol.
+ - Supported DNS Hijacking.
  - No privilege required.
 
 
@@ -18,9 +19,29 @@ USAGE
 nsproxy [-s <server>] [-p <port>] [-d <dns>] [command]
 
 examples:
+  $ nsproxy curl https://api.ipify.org
+  $ nsproxy -s 127.0.0.1 -p 1080 -d 8.8.8.8 nslookup google.com
 
- $ nsproxy curl https://api.ipify.org
- $ nsproxy -s 127.0.0.1 -p 1080 -d 8.8.8.8 nslookup google.com
+options:
+  -s server
+    socks5 proxy server address, only IPv4 address supported.
+    default vaule is "127.0.0.1"
+
+  -p port
+    proxy server port.
+    default value is "1080"
+
+  -d dns
+    DNS hijacking, allow following options:
+      -d off
+        disable DNS hijacking, send DNS requests directly by local network (not proxied).
+      -d proxy
+        disable DNS hijacking, treat DNS requests as normal UDP packets and proxied.
+      -d tcp://<nameserver_ip>
+        redirect DNS requests to specified TCP nameserver, requests will proxied.
+      -d udp://<nameserver_ip>
+        redirect DNS requests to specified UDP nameserver, requests will proxied.
+    default value is "tcp://8.8.8.8"
 
 
 KNOWN ISSUE
