@@ -57,6 +57,7 @@ extern "C" {
 #define MEMP_PBUF           sizeof(struct pbuf)
 #define MEMP_PBUF_POOL (LWIP_MEM_ALIGN_SIZE(sizeof(struct pbuf)) + LWIP_MEM_ALIGN_SIZE(PBUF_POOL_BUFSIZE))
 
+#define memp_init()          (void)0
 #define memp_malloc(pool)    mem_malloc(pool)
 #define memp_free(pool, mem) mem_free(mem)
 #define mem_size_t           size_t

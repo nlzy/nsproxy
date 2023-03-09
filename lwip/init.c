@@ -335,9 +335,7 @@ lwip_init(void)
   sys_init();
 #endif /* !NO_SYS */
   mem_init();
-#if !NSPROXY_MODIFIED
   memp_init();
-#endif
   pbuf_init();
   netif_init();
 #if LWIP_IPV4
