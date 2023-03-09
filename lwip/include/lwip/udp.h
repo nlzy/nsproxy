@@ -117,7 +117,9 @@ struct udp_pcb {
 
 #if NSPROXY_MODIFIED
   struct sk_ops *conn;
-  size_t gc;
+  struct pbuf *rcvq[8];
+  u16_t nrcvq;
+  u16_t gc;
 #endif
 };
 /* udp_pcbs export for external reference (e.g. SNMP agent) */

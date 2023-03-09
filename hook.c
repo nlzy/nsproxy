@@ -10,32 +10,19 @@
 
 #include "direct.h"
 #include "fakedns.h"
-#include "socks.h"
 #include "http.h"
+#include "socks.h"
 
 /* UDP */
-static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
-                        const ip_addr_t *addr, u16_t port)
-{
-    char buffer[65535];
-
-    if (p->len == p->tot_len) {
-        pcb->conn->send(pcb->conn, p->payload, p->tot_len);
-    } else {
-        pbuf_copy_partial(p, buffer, p->tot_len, 0);
-        pcb->conn->send(pcb->conn, buffer, p->tot_len);
-    }
-
-    pbuf_free(p);
-}
 
 void udp_handle_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
     char buffer[65535];
-    ssize_t nread;
+    ssize_t nread, nsent;
     struct pbuf *p;
+    size_t i;
 
     if (event & (EPOLLERR | EPOLLHUP)) {
         conn->destroy(conn);
@@ -57,8 +44,55 @@ void udp_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLOUT) {
-        conn->evctl(conn, EPOLLOUT, 0);
+        for (i = 0; i < pcb->nrcvq; i++) {
+            p = pcb->rcvq[i];
+            if (p->len == p->tot_len) {
+                nsent = pcb->conn->send(pcb->conn, p->payload, p->tot_len);
+            } else {
+                pbuf_copy_partial(p, buffer, p->tot_len, 0);
+                nsent = pcb->conn->send(pcb->conn, buffer, p->tot_len);
+            }
+            if (nsent > 0) {
+                pbuf_free(p);
+                continue;
+            } else {
+                break;
+            }
+        }
+        pcb->nrcvq -= i;
+        if (pcb->nrcvq == 0) {
+            conn->evctl(conn, EPOLLOUT, 0);
+        } else {
+            memmove(pcb->rcvq, pcb->rcvq + i,
+                    pcb->nrcvq * sizeof(pcb->rcvq[0]));
+            conn->evctl(conn, EPOLLOUT, 1);
+        }
     }
+}
+
+static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                        const ip_addr_t *addr, u16_t port)
+{
+    struct sk_ops *conn = pcb->conn;
+    ssize_t nsent;
+
+    if (!conn || !p) {
+        udp_remove(pcb);
+        if (p)
+            pbuf_free(p);
+        return;
+    }
+
+    if (pcb->nrcvq == arraysizeof(pcb->rcvq)) {
+        memmove(pcb->rcvq, pcb->rcvq + 1,
+                (arraysizeof(pcb->rcvq) - 1) * sizeof(pcb->rcvq[0]));
+        pcb->rcvq[arraysizeof(pcb->rcvq) - 1] = p;
+    } else {
+        pcb->rcvq[pcb->nrcvq] = p;
+        pcb->nrcvq++;
+    }
+
+    udp_handle_event(pcb, EPOLLOUT);
 }
 
 void hook_on_udp_new(struct udp_pcb *pcb)
@@ -67,8 +101,8 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
     /* TODO: make configurable */
     if (pcb->local_port == 53) {
-        tcpdns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
-                       pcb);
+        tcpdns_create(&pcb->conn, ip_current_netif()->state,
+                         &udp_handle_event, pcb);
         pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
     } else {
         socks_udp_create(&pcb->conn, ip_current_netif()->state,
