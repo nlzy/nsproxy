@@ -11,6 +11,7 @@
 #include "direct.h"
 #include "fakedns.h"
 #include "socks.h"
+#include "http.h"
 
 /* UDP */
 static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
@@ -186,7 +187,7 @@ void hook_on_tcp_new(struct tcp_pcb *pcb)
     tcp_sent(pcb, &tcp_sent_cb);
     tcp_recv(pcb, &tcp_recv_cb);
 
-    socks_tcp_create(&pcb->conn, ip_current_netif()->state, &tcp_handle_event,
+    http_tcp_create(&pcb->conn, ip_current_netif()->state, &tcp_handle_event,
                      pcb);
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }

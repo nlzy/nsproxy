@@ -1,0 +1,286 @@
+#include "socks.h"
+
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "loop.h"
+
+struct conn_socks {
+    struct sk_ops ops;
+
+    void (*userev)(void *userp, unsigned int event);
+    void *userp;
+
+    char *addr;
+    uint16_t port;
+
+    int sfd;
+    int epfd;
+    struct ep_poller io_poller;
+    struct epoll_event io_poller_ev;
+};
+
+void http_io_event(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
+    h->userev(h->userp, event);
+}
+
+void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
+    ssize_t nread;
+    char buffer[2048];
+    char *p;
+    size_t s;
+
+    if ((nread = recv(h->sfd, &buffer, sizeof(buffer) - 1, MSG_PEEK)) == -1) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+    buffer[nread] = '\0';
+
+    p = strstr(buffer, "\r\n\r\n");
+    if (p == NULL) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+
+    s = p - buffer + strlen("\r\n\r\n");
+
+    if ((nread = recv(h->sfd, &buffer, s, 0)) == -1) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+
+    h->io_poller_ev.events = EPOLLOUT | EPOLLIN;
+    h->io_poller.on_epoll_event = &http_io_event;
+    if (epoll_ctl(h->epfd, EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+}
+
+void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *h = container_of(poller, struct conn_socks, io_poller);
+    ssize_t nsent;
+    char buffer[2048];
+    ssize_t bufferlen;
+
+    bufferlen = snprintf(buffer, sizeof(buffer), "CONNECT %s:%u HTTP/1.1\r\n\r\n", h->addr,
+             (unsigned int)h->port);
+
+    if ((nsent = send(h->sfd, &buffer, bufferlen, MSG_NOSIGNAL)) == -1) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+
+    if (nsent != bufferlen) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+
+    h->io_poller_ev.events = EPOLLIN;
+    h->io_poller.on_epoll_event = &http_handshake_phase_2;
+    if (epoll_ctl(h->epfd, EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+}
+
+int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+    struct addrinfo hints = { .ai_family = AF_UNSPEC };
+    struct addrinfo *result;
+
+    /* FIXME: make configurable */
+    /* FIXME: make non block */
+    getaddrinfo(CONFIG_HTTP_ADDR, CONFIG_HTTP_PORT, &hints, &result);
+
+    if ((h->sfd = socket(result->ai_family,
+                         SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
+        -1) {
+        perror("socket()");
+        abort();
+    }
+
+    if (connect(h->sfd, result->ai_addr, result->ai_addrlen) == -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("connect()");
+            abort();
+        }
+    }
+
+    freeaddrinfo(result);
+
+    h->io_poller_ev.events = EPOLLOUT;
+    h->io_poller.on_epoll_event = &http_handshake_phase_1;
+    if (epoll_ctl(h->epfd, EPOLL_CTL_ADD, h->sfd, &h->io_poller_ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+
+    h->addr = strdup(addr);
+    h->port = port;
+
+    return 0;
+}
+
+int http_shutdown(struct sk_ops *handle, int how)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+    int ret;
+
+    if (h->io_poller.on_epoll_event != &http_io_event) {
+        return -ENOTCONN;
+    }
+
+    if ((ret = shutdown(h->sfd, how)) == -1) {
+        if (is_ignored_skerr(errno)) {
+            return -errno;
+        } else {
+            perror("shutdown()");
+            abort();
+        }
+    }
+
+    return ret;
+}
+
+void http_evctl(struct sk_ops *handle, uint32_t event, int enable)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+    uint32_t old = h->io_poller_ev.events;
+
+    if (h->io_poller.on_epoll_event != &http_io_event) {
+        return;
+    }
+
+    if (enable) {
+        h->io_poller_ev.events |= event;
+    } else {
+        h->io_poller_ev.events &= ~event;
+    }
+
+    if (old != h->io_poller_ev.events) {
+        if (epoll_ctl(h->epfd, EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) == -1) {
+            perror("epoll_ctl()");
+            abort();
+        }
+    }
+}
+
+ssize_t http_send(struct sk_ops *handle, const char *data, size_t size)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+    ssize_t nsent;
+
+    if (h->io_poller.on_epoll_event != &http_io_event) {
+        return -EAGAIN;
+    }
+
+    nsent = send(h->sfd, data, size, MSG_NOSIGNAL);
+    if (nsent == -1) {
+        if (is_ignored_skerr(errno)) {
+            nsent = -errno;
+        } else {
+            perror("send()");
+            abort();
+        }
+    }
+
+#ifndef NDEBUG
+    fprintf(stderr, "--- http %zd bytes.\n", nsent);
+#endif
+
+    return nsent;
+}
+
+ssize_t http_recv(struct sk_ops *handle, char *data, size_t size)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+    ssize_t nread;
+
+    if (h->io_poller.on_epoll_event != &http_io_event) {
+        return -EAGAIN;
+    }
+
+    nread = recv(h->sfd, data, size, 0);
+    if (nread == -1) {
+        if (is_ignored_skerr(errno)) {
+            nread = -errno;
+        } else {
+            perror("send()");
+            abort();
+        }
+    }
+
+#ifndef NDEBUG
+    fprintf(stderr, "+++ http %zd bytes.\n", nread);
+#endif
+
+    return nread;
+}
+
+void http_destroy(struct sk_ops *handle)
+{
+    struct conn_socks *h = (struct conn_socks *)handle;
+
+    if (epoll_ctl(h->epfd, EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+
+    if (shutdown(h->sfd, SHUT_RDWR) == -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("shutdown()");
+            abort();
+        }
+    }
+
+    if (close(h->sfd) == -1) {
+        perror("close()");
+        abort();
+    }
+
+    free(h->addr);
+
+    free(h);
+}
+
+int http_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
+                    void (*userev)(void *userp, unsigned int event),
+                    void *userp)
+{
+    struct conn_socks *h;
+
+    if ((h = calloc(1, sizeof(struct conn_socks))) == NULL) {
+        fprintf(stderr, "Out of Memory\n");
+        abort();
+    }
+
+    h->ops.connect = &http_connect;
+    h->ops.shutdown = &http_shutdown;
+    h->ops.evctl = &http_evctl;
+    h->ops.send = &http_send;
+    h->ops.recv = &http_recv;
+    h->ops.destroy = &http_destroy;
+
+    h->epfd = loop_epfd(ctx);
+    h->userev = userev;
+    h->userp = userp;
+    h->io_poller_ev.data.ptr = &h->io_poller;
+
+    *handle = &h->ops;
+    return 0;
+}
