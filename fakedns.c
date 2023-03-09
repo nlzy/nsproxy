@@ -414,176 +414,230 @@ void dns_tmr(void)
     return;
 }
 
+struct conn_tcpdns;
+struct conn_tcpdns_worker;
+
 struct conn_tcpdns {
     struct sk_ops ops;
     void (*userev)(void *userp, unsigned int event);
     void *userp;
     struct context_loop *ctx;
-    struct sk_ops *upstream;
+    struct conn_tcpdns_worker *workers[16];
+    size_t nworker;
+    char addr[512];
+    uint16_t port;
+};
+
+struct conn_tcpdns_worker {
+    struct sk_ops *conn;
+    struct conn_tcpdns *master;
+
     char sndbuf[2048];
     ssize_t nsndbuf;
+
     char rcvbuf[2048];
     ssize_t nrcvbuf;
+
     int done;
 };
 
-void tcpdns_handle_event(void *userp, unsigned int event)
+void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
 {
-    struct conn_tcpdns *h = userp;
-    struct sk_ops *upstream = h->upstream;
-    ssize_t nsent, nread;
+    struct conn_tcpdns *master = worker->master;
+    size_t i;
+
+    /* close connection (if present) */
+    if (worker->conn) {
+        worker->conn->destroy(worker->conn);
+        worker->conn = NULL;
+    }
+
+    /* remove this worker from workers list */
+    for (i = 0; i < master->nworker; i++) {
+        if (master->workers[i] == worker) {
+            break;
+        }
+    }
+    if (i != master->nworker) {
+        master->workers[i] = master->workers[master->nworker - 1];
+        master->nworker--;
+    }
+
+    /* gone */
+    free(worker);
+}
+
+void tcpdns_worker_handle_event(void *userp, unsigned int event)
+{
+    struct conn_tcpdns_worker *worker = userp;
+    struct sk_ops *conn = worker->conn;
+    ssize_t nread, nsent;
     uint16_t rsz;
 
-    if (event & EPOLLERR) {
-        h->userev(h->userp, EPOLLERR);
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        tcpdns_worker_destroy(worker);
         return;
     }
 
     if (event & EPOLLIN) {
-        nread = upstream->recv(upstream, h->rcvbuf + h->nrcvbuf,
-                               sizeof(h->rcvbuf) - h->nrcvbuf);
+        nread = conn->recv(conn, worker->rcvbuf + worker->nrcvbuf,
+                           sizeof(worker->rcvbuf) - worker->nrcvbuf);
         if (nread > 0) {
-            h->nrcvbuf += nread;
-            if (h->nrcvbuf > 2) {
-                memcpy(&rsz, h->rcvbuf, sizeof(rsz));
-                rsz = be16toh(rsz);
-                if (rsz + 2 == h->nrcvbuf) {
-                    h->done = 1;
-                    h->userev(h->userp, EPOLLIN);
-                    h->userev(h->userp, EPOLLHUP);
-                    return;
-                }
-            }
-        } else if (nread == 0) {
-            h->userev(h->userp, EPOLLERR);
-            return;
-        } else if (nread == -EAGAIN) {
-            upstream->evctl(upstream, EPOLLIN, 1);
+            worker->nrcvbuf += nread;
         } else {
-            h->userev(h->userp, EPOLLERR);
+            tcpdns_worker_destroy(worker);
             return;
+        }
+        if (worker->nrcvbuf > 2) {
+            memcpy(&rsz, worker->rcvbuf, sizeof(rsz));
+            rsz = be16toh(rsz);
+            if (rsz + 2 == worker->nrcvbuf) {
+                conn->destroy(conn);
+                worker->conn = NULL;
+                worker->done = 1;
+                worker->master->userev(worker->master->userp, EPOLLIN);
+                return;
+            }
         }
     }
 
     if (event & EPOLLOUT) {
-        nsent = upstream->send(upstream, h->sndbuf, h->nsndbuf);
-        if (nsent > 0 && nsent == h->nsndbuf) {
-            h->nsndbuf = 0;
-            upstream->evctl(upstream, EPOLLOUT, 0);
-            upstream->evctl(upstream, EPOLLIN, 1);
-        } else if (nsent > 0) {
-            h->nsndbuf -= nsent;
-            memmove(h->sndbuf, h->sndbuf + nsent, h->nsndbuf);
-        } else if (nsent == -EAGAIN) {
-            upstream->evctl(upstream, EPOLLOUT, 1);
+        nsent = conn->send(conn, worker->sndbuf, worker->nsndbuf);
+        if (nsent > 0) {
+            worker->nsndbuf -= nsent;
+            memmove(worker->sndbuf, worker->sndbuf + nsent, worker->nsndbuf);
         } else {
-            h->userev(h->userp, EPOLLERR);
+            tcpdns_worker_destroy(worker);
             return;
+        }
+        if (worker->nsndbuf == 0) {
+            conn->evctl(conn, EPOLLIN, 1);
+            conn->evctl(conn, EPOLLOUT, 0);
         }
     }
 
-    if (event & EPOLLHUP) {
-        h->userev(h->userp, EPOLLHUP);
-    }
-}
+    return;
+};
 
 int tcpdns_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
-    int ret = h->upstream->connect(h->upstream, addr, port);
+    struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
 
-    h->upstream->evctl(h->upstream, EPOLLIN | EPOLLOUT, 0);
+    if (strlen(addr) >= 512)
+        return -1;
 
-    return ret;
+    strcpy(master->addr, addr);
+    master->port = port;
+
+    return 0;
 }
 
 int tcpdns_shutdown(struct sk_ops *handle, int how)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
-    return h->upstream->shutdown(h->upstream, how);
+    return 0;
 }
 
 void tcpdns_evctl(struct sk_ops *handle, uint32_t event, int enable)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
     return;
 }
 
 ssize_t tcpdns_send(struct sk_ops *handle, const char *data, size_t size)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
+    struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
+    struct conn_tcpdns_worker *worker;
     uint16_t sizebe;
 
-    if (h->nsndbuf)
-        return -EAGAIN;
+    if (master->nworker == arraysizeof(master->workers))
+        return -EAGAIN; /* no available worker */
 
-    if (size + 2 > sizeof(h->sndbuf))
-        return -EAGAIN;
+    if (size + 2 > sizeof(worker->sndbuf))
+        return -EAGAIN; /* query too large */
 
+    /* init worker */
+    if ((worker = calloc(1, sizeof(struct conn_tcpdns_worker))) == NULL) {
+        fprintf(stderr, "Out of Memory.\n");
+        abort();
+    }
+    worker->master = master;
     sizebe = htobe16(size);
-    memcpy(h->sndbuf, &sizebe, 2);
+    memcpy(worker->sndbuf, &sizebe, 2);
+    memcpy(worker->sndbuf + 2, data, size);
+    worker->nsndbuf = size + 2;
 
-    memcpy(h->sndbuf + 2, data, size);
+    socks_tcp_create(&worker->conn, master->ctx, &tcpdns_worker_handle_event,
+                     worker);
+    worker->conn->connect(worker->conn, master->addr, master->port);
 
-    h->nsndbuf = size + 2;
-
-    h->upstream->evctl(h->upstream, EPOLLOUT, 1);
+    /* add to workers list */
+    master->workers[master->nworker] = worker;
+    master->nworker++;
 
     return size;
 }
 
 ssize_t tcpdns_recv(struct sk_ops *handle, char *data, size_t size)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
-    size_t n = h->nrcvbuf - 2;
+    struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
+    struct conn_tcpdns_worker *worker = NULL;
+    struct conn_tcpdns_worker *swaptmp;
+    size_t i;
+    ssize_t n;
 
-    if (size < n)
-        return -EAGAIN;
+    /* find first worker which marked done */
+    for (i = 0; i < master->nworker; i++) {
+        if (master->workers[i]->done) {
+            worker = master->workers[i];
+            break;
+        }
+    }
+    if (!worker)
+        return -EAGAIN; /* no worker done */
 
-    if (!h->done)
-        return -EAGAIN;
+    /* copy answer */
+    n = worker->nrcvbuf - 2;
+    memcpy(data, worker->rcvbuf + 2, n);
 
-    if (!h->nrcvbuf)
-        return -EAGAIN;
-
-    memcpy(data, h->rcvbuf + 2, n);
-    h->nrcvbuf = 0;
+    /* free */
+    tcpdns_worker_destroy(worker);
 
     return n;
 }
 
 void tcpdns_destroy(struct sk_ops *handle)
 {
-    struct conn_tcpdns *h = container_of(handle, struct conn_tcpdns, ops);
-    if (h->upstream)
-        h->upstream->destroy(h->upstream);
-    free(h);
+    struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
+    size_t i;
+
+    for (i = 0; i < master->nworker; i++) {
+        tcpdns_worker_destroy(master->workers[i]);
+    }
+
+    free(master);
 }
 
 int tcpdns_create(struct sk_ops **handle, struct context_loop *ctx,
                   void (*userev)(void *userp, unsigned int event), void *userp)
 {
-    struct conn_tcpdns *h;
+    struct conn_tcpdns *master;
 
-    if ((h = calloc(1, sizeof(struct conn_tcpdns))) == NULL) {
+    if ((master = calloc(1, sizeof(struct conn_tcpdns))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
         abort();
     }
 
-    h->ops.connect = &tcpdns_connect;
-    h->ops.shutdown = &tcpdns_shutdown;
-    h->ops.evctl = &tcpdns_evctl;
-    h->ops.send = &tcpdns_send;
-    h->ops.recv = &tcpdns_recv;
-    h->ops.destroy = &tcpdns_destroy;
+    master->ops.connect = &tcpdns_connect;
+    master->ops.shutdown = &tcpdns_shutdown;
+    master->ops.evctl = &tcpdns_evctl;
+    master->ops.send = &tcpdns_send;
+    master->ops.recv = &tcpdns_recv;
+    master->ops.destroy = &tcpdns_destroy;
 
-    h->userev = userev;
-    h->userp = userp;
+    master->userev = userev;
+    master->userp = userp;
 
-    h->ctx = ctx;
+    master->ctx = ctx;
 
-    socks_tcp_create(&h->upstream, ctx, &tcpdns_handle_event, h);
-
-    *handle = &h->ops;
+    *handle = &master->ops;
     return 0;
 }
