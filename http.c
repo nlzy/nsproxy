@@ -50,6 +50,7 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
     p = strstr(buffer, "\r\n\r\n");
     if (p == NULL) {
+        /* FIXME: save to buffer */
         h->userev(h->userp, EPOLLERR);
         return;
     }
@@ -76,8 +77,9 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     char buffer[2048];
     ssize_t bufferlen;
 
-    bufferlen = snprintf(buffer, sizeof(buffer), "CONNECT %s:%u HTTP/1.1\r\n\r\n", h->addr,
-             (unsigned int)h->port);
+    bufferlen =
+        snprintf(buffer, sizeof(buffer), "CONNECT %s:%u HTTP/1.1\r\n\r\n",
+                 h->addr, (unsigned int)h->port);
 
     if ((nsent = send(h->sfd, &buffer, bufferlen, MSG_NOSIGNAL)) == -1) {
         h->userev(h->userp, EPOLLERR);
@@ -85,6 +87,7 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     }
 
     if (nsent != bufferlen) {
+        /* FIXME: retry */
         h->userev(h->userp, EPOLLERR);
         return;
     }

@@ -74,7 +74,6 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                         const ip_addr_t *addr, u16_t port)
 {
     struct sk_ops *conn = pcb->conn;
-    ssize_t nsent;
 
     if (!conn || !p) {
         udp_remove(pcb);
@@ -101,8 +100,8 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
     /* TODO: make configurable */
     if (pcb->local_port == 53) {
-        tcpdns_create(&pcb->conn, ip_current_netif()->state,
-                         &udp_handle_event, pcb);
+        tcpdns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
+                      pcb);
         pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
     } else {
         socks_udp_create(&pcb->conn, ip_current_netif()->state,
@@ -190,7 +189,6 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
                          err_t err)
 {
     struct sk_ops *conn = pcb->conn;
-    ssize_t nsent;
 
     if (!conn) {
         tcp_abort(pcb);
@@ -222,6 +220,6 @@ void hook_on_tcp_new(struct tcp_pcb *pcb)
     tcp_recv(pcb, &tcp_recv_cb);
 
     http_tcp_create(&pcb->conn, ip_current_netif()->state, &tcp_handle_event,
-                     pcb);
+                    pcb);
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }

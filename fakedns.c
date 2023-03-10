@@ -11,16 +11,16 @@
 #include "lwip/ip4_addr.h"
 #include "socks.h"
 
-#define	DNSH_RCODE_NOERROR    0
-#define	DNSH_RCODE_FORMERR    1
-#define	DNSH_RCODE_SERVFAIL   2
-#define	DNSH_RCODE_NXDOMAIN   3
-#define	DNSH_RCODE_NOTIMP     4
-#define	DNSH_RCODE_REFUSED    5
-#define	DNSH_RCODE_YXDOMAIN   6
-#define	DNSH_RCODE_XRRSET     7
-#define	DNSH_RCODE_NOTAUTH    8
-#define	DNSH_RCODE_NOTZONE    9
+#define DNSH_RCODE_NOERROR  0
+#define DNSH_RCODE_FORMERR  1
+#define DNSH_RCODE_SERVFAIL 2
+#define DNSH_RCODE_NXDOMAIN 3
+#define DNSH_RCODE_NOTIMP   4
+#define DNSH_RCODE_REFUSED  5
+#define DNSH_RCODE_YXDOMAIN 6
+#define DNSH_RCODE_XRRSET   7
+#define DNSH_RCODE_NOTAUTH  8
+#define DNSH_RCODE_NOTZONE  9
 
 struct dnshdr {
     uint16_t id;
@@ -131,7 +131,7 @@ ssize_t dns_query_put(char *buffer, size_t size, const struct dnsquery *q)
 ssize_t dns_query_get(struct dnsquery *q, const char *buffer, size_t size)
 {
     const char *cur = buffer;
-    uint8_t c, t;
+    uint8_t c;
 
     if (size == 0)
         return -1;
@@ -213,7 +213,7 @@ ssize_t dns_answer_put(char *buffer, size_t size, const struct dnsanswer *ans)
 ssize_t dns_answer_get(struct dnsanswer *ans, const char *buffer, size_t size)
 {
     const char *cur = buffer;
-    uint8_t c, t;
+    uint8_t c;
 
     if (size == 0)
         return -1;
@@ -333,9 +333,9 @@ ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
 
     else if (h->hdr.numanswers != 0 || h->hdr.numauthrr != 0)
         h->rcode = DNSH_RCODE_FORMERR; /* malformed query */
-    
+
     else if (h->query.class != 1 || h->query.type != 1)
-        h->rcode = DNSH_RCODE_NOTIMP;  /* not IPv4 A query */
+        h->rcode = DNSH_RCODE_NOTIMP; /* not IPv4 A query */
 
     else
         h->rcode = DNSH_RCODE_NOERROR;
@@ -599,7 +599,6 @@ ssize_t tcpdns_recv(struct sk_ops *handle, char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
     struct conn_tcpdns_worker *worker = NULL;
-    struct conn_tcpdns_worker *swaptmp;
     size_t i;
     ssize_t n;
 
