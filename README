@@ -1,8 +1,8 @@
 nsproxy
 ====================
 
-nsproxy is a Linux-specific command-line tool, makes any application force to
-use a specific socks5 proxy.
+nsproxy is a Linux-specific command-line tool, makes almost any application
+force to use a specific SOCKS5 or HTTP proxy.
 
 Functionally similar to tsocks / proxychains-ng / graftcp, but using a
 completely different mechanism. It has the following features:
@@ -16,32 +16,39 @@ completely different mechanism. It has the following features:
 USAGE
 ----------
 
-nsproxy [-s <server>] [-p <port>] [-d <dns>] [command]
+nsproxy [-h] [-s <server>] [-p <port>] [-d <dns>] [command]
 
-examples:
-  $ nsproxy curl https://api.ipify.org
-  $ nsproxy -s 127.0.0.1 -p 1080 -d 8.8.8.8 nslookup google.com
+Examples:
+  # Use socks5 proxy
+  nsproxy nslookup google.com
 
-options:
+  # Use http proxy
+  nsproxy -h curl https://api.ipify.org
+
+Options:
+  -h
+    Use http proxy, not socks5.
+    Note: UDP is **NOT** supported in http proxy. UDP packets will drop silently.
+
   -s server
-    socks5 proxy server address, only IPv4 address supported.
-    default vaule is "127.0.0.1"
+    Proxy server address. Only IPv4 address is supported.
+    Default vaule is "127.0.0.1"
 
   -p port
-    proxy server port.
-    default value is "1080"
+    Proxy server port.
+    Default value is "1080" for socks, "8080" for http
 
   -d dns
     DNS hijacking, allow following options:
       -d off
-        disable DNS hijacking, send DNS requests directly by local network (not proxied).
+        Disable DNS hijacking, send DNS requests directly by local network (not proxied).
       -d proxy
-        disable DNS hijacking, treat DNS requests as normal UDP packets and proxied.
+        Disable DNS hijacking, treat DNS requests as normal UDP packets and proxied.
       -d tcp://<nameserver_ip>
-        redirect DNS requests to specified TCP nameserver, requests will proxied.
+        Redirect DNS requests to specified TCP nameserver, requests will proxied.
       -d udp://<nameserver_ip>
-        redirect DNS requests to specified UDP nameserver, requests will proxied.
-    default value is "tcp://8.8.8.8"
+        Redirect DNS requests to specified UDP nameserver, requests will proxied.
+    Default value is "tcp://8.8.8.8"
 
 
 KNOWN ISSUE
@@ -53,11 +60,10 @@ All {uid,gid} except the current user will be mapped to
 That's means file owners except the current user will be shown as 'nobody',
 and program like sudo / su will not work.
 
+
 W.I.P
 ----------
 
- - IPv6 support
- - HTTP proxy server support
  - fullcone NAT
+ - IPv6 support
  - fake DNS
-
