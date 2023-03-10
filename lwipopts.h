@@ -25,7 +25,8 @@
 #define MEM_ALIGNMENT __SIZEOF_POINTER__
 
 /* netif */
-#define LWIP_SINGLE_NETIF 1
+#define LWIP_SINGLE_NETIF   1
+#define LWIP_MULTICAST_PING 1
 
 /* IPv4 */
 #define IP_FORWARD 0
