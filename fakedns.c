@@ -11,6 +11,17 @@
 #include "lwip/ip4_addr.h"
 #include "socks.h"
 
+#define	DNSH_RCODE_NOERROR    0
+#define	DNSH_RCODE_FORMERR    1
+#define	DNSH_RCODE_SERVFAIL   2
+#define	DNSH_RCODE_NXDOMAIN   3
+#define	DNSH_RCODE_NOTIMP     4
+#define	DNSH_RCODE_REFUSED    5
+#define	DNSH_RCODE_YXDOMAIN   6
+#define	DNSH_RCODE_XRRSET     7
+#define	DNSH_RCODE_NOTAUTH    8
+#define	DNSH_RCODE_NOTZONE    9
+
 struct dnshdr {
     uint16_t id;
     union {
@@ -264,6 +275,7 @@ struct conn_fakedns {
     struct dnshdr hdr;
     struct dnsquery query;
     struct context_loop *ctx;
+    uint8_t rcode;
 };
 
 int fakedns_connect(struct sk_ops *handle, const char *addr, uint16_t port)
@@ -294,27 +306,12 @@ ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
         return -EAGAIN;
     offset += ret;
 
-    if (h->hdr.flag.qr != 0)
-        return -EAGAIN; /* not query */
-
-    if (h->hdr.flag.opcode != 0)
-        return -EAGAIN; /* not standard query */
-
-    if (h->hdr.numquestions != 1)
-        return -EAGAIN; /* not a single query */
-
-    if (h->hdr.numanswers != 0 || h->hdr.numauthrr != 0)
-        return -EAGAIN; /* malformed query */
-
     /* copy and check dnsquery */
     if ((ret = dns_query_get(&h->query, data + offset, size)) == -1)
         return -EAGAIN;
     offset += ret;
 
-    /* TODO: IPv6 AAAA query */
-    if (h->query.type != 1 || h->query.class != 1)
-        return -EAGAIN; /* not IPv4 A query */
-
+    /* copy and check extarr */
     for (i = 0; i < h->hdr.numextrarr; i++) {
         if ((ret = dns_answer_get(&ans, data + offset, size)) == -1)
             return -EAGAIN;
@@ -324,6 +321,24 @@ ssize_t fakedns_send(struct sk_ops *handle, const char *data, size_t size)
     /* length check */
     if (offset != size)
         return -EAGAIN;
+
+    if (h->hdr.flag.qr != 0)
+        h->rcode = DNSH_RCODE_FORMERR; /* not query */
+
+    else if (h->hdr.flag.opcode != 0)
+        h->rcode = DNSH_RCODE_FORMERR; /* not standard query */
+
+    else if (h->hdr.numquestions != 1)
+        h->rcode = DNSH_RCODE_FORMERR; /* not a single query */
+
+    else if (h->hdr.numanswers != 0 || h->hdr.numauthrr != 0)
+        h->rcode = DNSH_RCODE_FORMERR; /* malformed query */
+    
+    else if (h->query.class != 1 || h->query.type != 1)
+        h->rcode = DNSH_RCODE_NOTIMP;  /* not IPv4 A query */
+
+    else
+        h->rcode = DNSH_RCODE_NOERROR;
 
     h->userev(h->userp, EPOLLIN);
 
@@ -341,19 +356,31 @@ ssize_t fakedns_recv(struct sk_ops *handle, char *data, size_t size)
     ssize_t ret;
     struct ip4_addr fakeip;
 
-    /* prepare hdr */
+    /* fill hdr */
     memset(&hdr, 0, sizeof(hdr));
     hdr.flag.qr = 1;
     hdr.flag.rd = 1;
     hdr.flag.ra = 1;
+    hdr.flag.rcode = h->rcode;
     hdr.id = h->hdr.id;
     hdr.numquestions = 1;
-    hdr.numanswers = 1;
+    hdr.numanswers = h->rcode == DNSH_RCODE_NOERROR ? 1 : 0;
+    if ((ret = dns_hdr_put(data + offset, size, &hdr)) == -1)
+        return -EAGAIN;
+    offset += ret;
 
-    /* prepare query */
+    /* fill query */
     memcpy(&query, &h->query, sizeof(query));
+    if ((ret = dns_query_put(data + offset, size, &query)) == -1)
+        return -EAGAIN;
+    offset += ret;
 
-    /* prepare answer */
+    /* if an error occured, don't send answer */
+    if (h->rcode != DNSH_RCODE_NOERROR) {
+        return offset;
+    }
+
+    /* fill answer */
     answer.type = 1;
     answer.class = 1;
     answer.ttl = 600;
@@ -361,14 +388,6 @@ ssize_t fakedns_recv(struct sk_ops *handle, char *data, size_t size)
     strcpy(answer.name, query.name);
     ip4addr_aton("192.168.48.4", &fakeip);
     memcpy(answer.resource, &fakeip, sizeof(fakeip));
-
-    if ((ret = dns_hdr_put(data + offset, size, &hdr)) == -1)
-        return -EAGAIN;
-    offset += ret;
-
-    if ((ret = dns_query_put(data + offset, size, &query)) == -1)
-        return -EAGAIN;
-    offset += ret;
 
     if ((ret = dns_answer_put(data + offset, size, &answer)) == -1)
         return -EAGAIN;
