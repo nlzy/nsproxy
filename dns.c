@@ -1,14 +1,11 @@
+#include "dns.h"
+
+#include <arpa/inet.h>
 #include <errno.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/epoll.h>
-#include <sys/eventfd.h>
 
 #include "direct.h"
 #include "loop.h"
-#include "lwip/ip4_addr.h"
 #include "socks.h"
 
 #define DNSH_RCODE_NOERROR  0
@@ -354,7 +351,7 @@ ssize_t fakedns_recv(struct sk_ops *handle, char *data, size_t size)
     struct dnsanswer answer;
     size_t offset = 0;
     ssize_t ret;
-    struct ip4_addr fakeip;
+    struct in_addr fakeip;
 
     /* fill hdr */
     memset(&hdr, 0, sizeof(hdr));
@@ -386,7 +383,8 @@ ssize_t fakedns_recv(struct sk_ops *handle, char *data, size_t size)
     answer.ttl = 600;
     answer.rl = 4;
     strcpy(answer.name, query.name);
-    ip4addr_aton("192.168.48.4", &fakeip);
+
+    inet_aton("192.168.48.4", &fakeip);
     memcpy(answer.resource, &fakeip, sizeof(fakeip));
 
     if ((ret = dns_answer_put(data + offset, size, &answer)) == -1)

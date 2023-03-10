@@ -1,8 +1,4 @@
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
-#include <sys/types.h>
-
 #include "common.h"
 
 struct context_loop;

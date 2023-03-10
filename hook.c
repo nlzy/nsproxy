@@ -1,15 +1,16 @@
-#include <assert.h>
+#include "hook.h"
+
 #include <errno.h>
-#include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
 
 #include "direct.h"
-#include "fakedns.h"
+#include "dns.h"
 #include "http.h"
 #include "socks.h"
 

@@ -36,7 +36,7 @@ add_executable(nsproxy
     direct.c
     socks.c
     http.c
-    fakedns.c
+    dns.c
 )
 
 target_include_directories(nsproxy PRIVATE

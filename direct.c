@@ -2,13 +2,12 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <netdb.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include "loop.h"
 
 struct conn_direct {
     struct sk_ops ops;

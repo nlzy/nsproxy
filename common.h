@@ -4,6 +4,13 @@
 #error "Only support GNU C compiler"
 #endif
 
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #define container_of(ptr, type, member)                    \
     ({                                                     \
         const typeof(((type *)0)->member) *__mptr = (ptr); \
