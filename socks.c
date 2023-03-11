@@ -224,10 +224,10 @@ int socks_shutdown(struct sk_ops *handle, int how)
     return ret;
 }
 
-void socks_evctl(struct sk_ops *handle, uint32_t event, int enable)
+void socks_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
-    uint32_t old = h->ev.events;
+    unsigned int old = h->ev.events;
 
     if (h->io_poller.on_epoll_event != &socks_io_event) {
         return;

@@ -285,7 +285,7 @@ int fakedns_shutdown(struct sk_ops *handle, int how)
     return 0;
 }
 
-void fakedns_evctl(struct sk_ops *handle, uint32_t event, int enable)
+void fakedns_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     return;
 }
@@ -554,7 +554,7 @@ int tcpdns_shutdown(struct sk_ops *handle, int how)
     return 0;
 }
 
-void tcpdns_evctl(struct sk_ops *handle, uint32_t event, int enable)
+void tcpdns_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     return;
 }

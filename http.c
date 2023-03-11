@@ -155,10 +155,10 @@ int http_shutdown(struct sk_ops *handle, int how)
     return ret;
 }
 
-void http_evctl(struct sk_ops *handle, uint32_t event, int enable)
+void http_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
-    uint32_t old = h->io_poller_ev.events;
+    unsigned int old = h->io_poller_ev.events;
 
     if (h->io_poller.on_epoll_event != &http_io_event) {
         return;

@@ -32,14 +32,14 @@ static void write_string(const char *fname, const char *str)
     close(fd);
 }
 
-void map_uid(unsigned from, unsigned to)
+void map_uid(unsigned int from, unsigned int to)
 {
     char str[32];
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
     write_string("/proc/self/uid_map", str);
 }
 
-void map_gid(unsigned from, unsigned to)
+void map_gid(unsigned int from, unsigned int to)
 {
     char str[32];
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);

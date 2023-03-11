@@ -82,10 +82,10 @@ int direct_shutdown(struct sk_ops *handle, int how)
     return ret;
 }
 
-void direct_evctl(struct sk_ops *handle, uint32_t event, int enable)
+void direct_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     struct conn_direct *h = (struct conn_direct *)handle;
-    uint32_t old = h->ev.events;
+    unsigned int old = h->ev.events;
 
     if (enable) {
         h->ev.events |= event;
