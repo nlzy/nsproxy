@@ -11,14 +11,18 @@
 
 struct conn_direct {
     struct sk_ops ops;
-    struct ep_poller io_poller;
     struct context_loop *ctx;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
-    struct epoll_event ev;
+
     int isudp;
-    char desc[32];
+    char *addr;
+    uint16_t port;
+
     int sfd;
+    struct ep_poller io_poller;
+    struct epoll_event io_poller_ev;
 };
 
 void direct_io_event(struct ep_poller *poller, unsigned int event)
@@ -55,12 +59,16 @@ int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     freeaddrinfo(result);
 
     h->io_poller.on_epoll_event = &direct_io_event;
-    h->ev.events = EPOLLIN | EPOLLOUT;
-    h->ev.data.ptr = &h->io_poller;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_ADD, h->sfd, &h->ev) == -1) {
+    h->io_poller_ev.events = EPOLLIN | EPOLLOUT;
+    h->io_poller_ev.data.ptr = &h->io_poller;
+    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_ADD, h->sfd, &h->io_poller_ev) ==
+        -1) {
         perror("epoll_ctl()");
         abort();
     }
+
+    h->addr = strdup(addr);
+    h->port = port;
 
     return 0;
 }
@@ -85,16 +93,17 @@ int direct_shutdown(struct sk_ops *handle, int how)
 void direct_evctl(struct sk_ops *handle, unsigned int event, int enable)
 {
     struct conn_direct *h = (struct conn_direct *)handle;
-    unsigned int old = h->ev.events;
+    unsigned int old = h->io_poller_ev.events;
 
     if (enable) {
-        h->ev.events |= event;
+        h->io_poller_ev.events |= event;
     } else {
-        h->ev.events &= ~event;
+        h->io_poller_ev.events &= ~event;
     }
 
-    if (old != h->ev.events) {
-        if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->ev) == -1) {
+    if (old != h->io_poller_ev.events) {
+        if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd,
+                      &h->io_poller_ev) == -1) {
             perror("epoll_ctl()");
             abort();
         }
@@ -117,7 +126,8 @@ ssize_t direct_send(struct sk_ops *handle, const char *data, size_t size)
     }
 
 #ifndef NDEBUG
-    fprintf(stderr, "--- direct %s %zd bytes.\n", h->desc, nsent);
+    fprintf(stderr, "--- direct %zd bytes. %s %s:%u\n", nsent,
+            h->isudp ? "UDP" : "TCP", h->addr, (unsigned int)h->port);
 #endif
 
     return nsent;
@@ -139,7 +149,8 @@ ssize_t direct_recv(struct sk_ops *handle, char *data, size_t size)
     }
 
 #ifndef NDEBUG
-    fprintf(stderr, "+++ direct %s %zd bytes.\n", h->desc, nread);
+    fprintf(stderr, "+++ direct %zd bytes. %s %s:%u\n", nread,
+            h->isudp ? "UDP" : "TCP", h->addr, (unsigned int)h->port);
 #endif
 
     return nread;
@@ -165,6 +176,8 @@ void direct_destroy(struct sk_ops *handle)
         perror("close()");
         abort();
     }
+
+    free(h->addr);
 
     free(h);
 }
@@ -194,9 +207,7 @@ int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
 {
     struct conn_direct *h = direct_create_internel();
 
-    snprintf(h->desc, sizeof(h->desc), "TCP");
     h->isudp = 0;
-
     h->ctx = ctx;
     h->userev = userev;
     h->userp = userp;
@@ -210,9 +221,7 @@ int direct_udp_create(struct sk_ops **handle, struct context_loop *ctx,
 {
     struct conn_direct *h = direct_create_internel();
 
-    snprintf(h->desc, sizeof(h->desc), "UDP");
     h->isudp = 1;
-
     h->ctx = ctx;
     h->userev = userev;
     h->userp = userp;
