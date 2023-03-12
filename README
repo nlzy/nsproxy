@@ -31,7 +31,7 @@ Options:
     Note: UDP is **NOT** supported in http proxy. UDP packets will drop silently.
 
   -s server
-    Proxy server address. Only IPv4 address is supported.
+    Proxy server address.
     Default vaule is "127.0.0.1"
 
   -p port
@@ -44,9 +44,9 @@ Options:
         Disable DNS hijacking, send DNS requests directly by local network (not proxied).
       -d proxy
         Disable DNS hijacking, treat DNS requests as normal UDP packets and proxied.
-      -d tcp://<nameserver_ip>
+      -d tcp://<nameserver_ipaddress>
         Redirect DNS requests to specified TCP nameserver, requests will proxied.
-      -d udp://<nameserver_ip>
+      -d udp://<nameserver_ipaddress>
         Redirect DNS requests to specified UDP nameserver, requests will proxied.
     Default value is "tcp://8.8.8.8"
 

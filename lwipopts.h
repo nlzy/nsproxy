@@ -36,6 +36,7 @@
 #define LWIP_IPV6_DUP_DETECT_ATTEMPTS 0
 #define LWIP_IPV6_SEND_ROUTER_SOLICIT 0
 #define LWIP_IPV6_AUTOCONFIG          0
+#define IPV6_FRAG_COPYHEADER          1
 
 /* TCP tuning */
 #define TCP_MSS          32000U

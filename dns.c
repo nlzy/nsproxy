@@ -5,6 +5,7 @@
 #include <sys/epoll.h>
 
 #include "direct.h"
+#include "http.h"
 #include "loop.h"
 #include "socks.h"
 
@@ -582,8 +583,15 @@ ssize_t tcpdns_send(struct sk_ops *handle, const char *data, size_t size)
     memcpy(worker->sndbuf + 2, data, size);
     worker->nsndbuf = size + 2;
 
-    socks_tcp_create(&worker->conn, master->ctx, &tcpdns_worker_handle_event,
-                     worker);
+    if (loop_conf(master->ctx)->proxytype == PROXY_SOCKS5)
+        socks_tcp_create(&worker->conn, master->ctx,
+                         &tcpdns_worker_handle_event, worker);
+    else if (loop_conf(master->ctx)->proxytype == PROXY_HTTP)
+        http_tcp_create(&worker->conn, master->ctx, &tcpdns_worker_handle_event,
+                        worker);
+    else
+        abort();
+
     worker->conn->connect(worker->conn, master->addr, master->port);
 
     /* add to workers list */

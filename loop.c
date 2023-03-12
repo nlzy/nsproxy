@@ -27,7 +27,8 @@ struct context_loop {
     int sigfd;
     int epfd;
     int timerfd;
-    struct netif *tunif;
+    struct netif tunif;
+    struct loopconf conf;
 };
 
 static void tun_input(struct netif *tunif)
@@ -105,7 +106,8 @@ err_t tunif_init(struct netif *netif)
     return ERR_OK;
 }
 
-void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
+void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd,
+               int sigfd)
 {
     struct context_loop *p;
     struct epoll_event ev;
@@ -162,15 +164,13 @@ void loop_init(struct context_loop **ctx, int tunfd, int sigfd)
     ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
     ip4addr_aton("0.0.0.0", &tungateway);
 
-    if ((p->tunif = malloc(sizeof(struct netif))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
-        abort();
-    }
-    netif_add(p->tunif, &tunaddr, &tunnetmask, &tungateway, p, &tunif_init,
+    netif_add(&p->tunif, &tunaddr, &tunnetmask, &tungateway, p, &tunif_init,
               &ip_input);
-    netif_set_default(p->tunif);
-    netif_set_link_up(p->tunif);
-    netif_set_up(p->tunif);
+    netif_set_default(&p->tunif);
+    netif_set_link_up(&p->tunif);
+    netif_set_up(&p->tunif);
+
+    memcpy(&p->conf, conf, sizeof(p->conf));
 
     *ctx = p;
 }
@@ -181,8 +181,7 @@ void loop_deinit(struct context_loop *ctx)
     close(ctx->tunfd);
     close(ctx->sigfd);
     close(ctx->timerfd);
-    netif_remove(ctx->tunif);
-    free(ctx->tunif);
+    netif_remove(&ctx->tunif);
     free(ctx);
 }
 
@@ -205,7 +204,7 @@ int loop_run(struct context_loop *ctx)
 
         for (i = 0; i < nevent; i++) {
             if (ev[i].data.ptr == &ctx->tunfd) {
-                tun_input(ctx->tunif);
+                tun_input(&ctx->tunif);
             } else if (ev[i].data.ptr == &ctx->sigfd) {
                 if (read(ctx->sigfd, &sig, sizeof(sig)) == -1) {
                     perror("read()");
@@ -242,4 +241,9 @@ int loop_run(struct context_loop *ctx)
 int loop_epfd(struct context_loop *ctx)
 {
     return ctx->epfd;
+}
+
+struct loopconf *loop_conf(struct context_loop *ctx)
+{
+    return &ctx->conf;
 }

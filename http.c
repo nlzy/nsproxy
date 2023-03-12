@@ -10,6 +10,7 @@
 
 struct conn_socks {
     struct sk_ops ops;
+    struct context_loop *ctx;
 
     void (*userev)(void *userp, unsigned int event);
     void *userp;
@@ -98,12 +99,11 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
+    struct loopconf *conf = loop_conf(h->ctx);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
 
-    /* FIXME: make configurable */
-    /* FIXME: make non block */
-    getaddrinfo(CONFIG_HTTP_ADDR, CONFIG_HTTP_PORT, &hints, &result);
+    getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
 
     if ((h->sfd = socket(result->ai_family,
                          SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
@@ -274,6 +274,7 @@ int http_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
     h->ops.recv = &http_recv;
     h->ops.destroy = &http_destroy;
 
+    h->ctx = ctx;
     h->epfd = loop_epfd(ctx);
     h->userev = userev;
     h->userp = userp;

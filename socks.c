@@ -160,13 +160,12 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
+    struct loopconf *conf = loop_conf(h->ctx);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
 
-    /* FIXME: make configurable */
-    /* FIXME: make non block */
-    getaddrinfo(CONFIG_SOCK_ADDR, CONFIG_SOCK_PORT, &hints, &result);
+    getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
 
     if ((h->sfd = socket(result->ai_family,
                          sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {

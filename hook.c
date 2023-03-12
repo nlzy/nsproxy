@@ -97,18 +97,35 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
+    struct context_loop *loop = ip_current_netif()->state;
+
     pcb->recv = &udp_recv_cb;
 
-    /* TODO: make configurable */
     if (pcb->local_port == 53) {
-        tcpdns_create(&pcb->conn, ip_current_netif()->state, &udp_handle_event,
-                      pcb);
-        pcb->conn->connect(pcb->conn, CONFIG_HIJACK_DNS, pcb->local_port);
+        switch (loop_conf(loop)->dnstype) {
+        case DNSHIJACK_OFF:
+            direct_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
+            break;
+        case DNSHIJACK_PROXY:
+            socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
+            break;
+        case DNSHIJACK_TCP:
+            tcpdns_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            pcb->conn->connect(pcb->conn, loop_conf(loop)->dnssrv, 53);
+            break;
+        case DNSHIJACK_UDP:
+            socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            pcb->conn->connect(pcb->conn, loop_conf(loop)->dnssrv, 53);
+            break;
+        default:
+            abort();
+        }
     } else {
-        socks_udp_create(&pcb->conn, ip_current_netif()->state,
-                         &udp_handle_event, pcb);
-        pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip),
-                           pcb->local_port);
+        /* TODO: blackhole */
+        socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+        pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
     }
 }
 
@@ -215,12 +232,20 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 
 void hook_on_tcp_new(struct tcp_pcb *pcb)
 {
+    struct context_loop *loop = ip_current_netif()->state;
+
     tcp_nagle_disable(pcb);
 
     tcp_sent(pcb, &tcp_sent_cb);
     tcp_recv(pcb, &tcp_recv_cb);
 
-    http_tcp_create(&pcb->conn, ip_current_netif()->state, &tcp_handle_event,
-                    pcb);
+    if (loop_conf(loop)->proxytype == PROXY_SOCKS5) {
+        socks_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
+    } else if (loop_conf(loop)->proxytype == PROXY_HTTP) {
+        http_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
+    } else {
+        abort();
+    }
+
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
 }

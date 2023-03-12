@@ -2,9 +2,11 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <linux/if_tun.h>
 #include <net/if.h>
 #include <net/route.h>
+#include <netdb.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -208,7 +210,7 @@ int recv_fd(int sock)
     return ret;
 }
 
-int parent(int sk)
+int parent(int sk, struct loopconf *conf)
 {
     int tunfd;
     int childfd;
@@ -245,7 +247,7 @@ int parent(int sk)
 
     close(sk);
 
-    loop_init(&ctx, tunfd, childfd);
+    loop_init(&ctx, conf, tunfd, childfd);
     return loop_run(ctx);
 }
 
@@ -300,6 +302,79 @@ int main(int argc, char *argv[])
     pid_t cid;
     char **cmd;
     char *defcmd[2];
+    int opt, err;
+    struct addrinfo hints = { .ai_family = AF_UNSPEC };
+    struct addrinfo *result;
+    struct loopconf conf;
+    const char *serv = NULL;
+    const char *port = NULL;
+    const char *dns = NULL;
+    int ishttp = 0;
+
+    while ((opt = getopt(argc, argv, "hs:p:d:")) != -1) {
+        switch (opt) {
+        case 'h':
+            ishttp = 1;
+            break;
+        case 's':
+            serv = optarg;
+            break;
+        case 'p':
+            port = optarg;
+            break;
+        case 'd':
+            dns = optarg;
+            break;
+        default:
+            break;
+        }
+    }
+
+    if (serv == NULL)
+        serv = "127.0.0.1";
+
+    if (port == NULL)
+        port = ishttp ? "8080" : "1080";
+
+    if (dns == NULL)
+        dns = "tcp://1.1.1.1";
+
+    /* resolve domain to ip address */
+    if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {
+        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(err));
+        abort();
+    }
+    if (result->ai_family == AF_INET) {
+        inet_ntop(result->ai_family,
+                  &((struct sockaddr_in *)result->ai_addr)->sin_addr,
+                  conf.proxysrv, sizeof(conf.proxysrv));
+    } else if (result->ai_family == AF_INET6) {
+        inet_ntop(result->ai_family,
+                  &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
+                  conf.proxysrv, sizeof(conf.proxysrv));
+    } else {
+        fprintf(stderr, "Unsupported proxy server address type.\n");
+        abort();
+    }
+    strncpy(conf.proxyport, port, sizeof(conf.proxyport));
+    conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
+
+    freeaddrinfo(result);
+
+    if (strcmp(dns, "off") == 0) {
+        conf.dnstype = DNSHIJACK_OFF;
+    } else if (strcmp(dns, "proxy") == 0) {
+        conf.dnstype = DNSHIJACK_PROXY;
+    } else if (strstr(dns, "tcp://") == dns) {
+        conf.dnstype = DNSHIJACK_TCP;
+        strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv));
+    } else if (strstr(dns, "udp://") == dns) {
+        conf.dnstype = DNSHIJACK_UDP;
+        strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv));
+    } else {
+        fprintf(stderr, "Unsupported dns address type.\n");
+        abort();
+    }
 
     if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
         perror("socketpair()");
@@ -313,19 +388,16 @@ int main(int argc, char *argv[])
 
     if (cid) {
         close(skpair[1]);
-
-        return parent(skpair[0]);
+        return parent(skpair[0], &conf);
     } else {
         close(skpair[0]);
-
-        if (argc < 2) {
+        if (optind >= argc) {
             defcmd[0] = strdup("/bin/bash");
             defcmd[1] = NULL;
             cmd = defcmd;
         } else {
-            cmd = argv + 1;
+            cmd = argv + optind;
         }
-
         return child(skpair[1], cmd);
     }
 }

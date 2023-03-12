@@ -3,10 +3,31 @@
 
 struct context_loop;
 
-void loop_init(struct context_loop **ctx, int tunfd, int sigfd);
+enum {
+    DNSHIJACK_OFF,
+    DNSHIJACK_PROXY,
+    DNSHIJACK_TCP,
+    DNSHIJACK_UDP
+};
+
+enum {
+    PROXY_SOCKS5,
+    PROXY_HTTP
+};
+
+struct loopconf {
+    char proxysrv[512];
+    char proxyport[16];
+    uint8_t proxytype;
+    char dnssrv[512];
+    uint8_t dnstype;
+};
+
+void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd, int sigfd);
 void loop_deinit(struct context_loop *ctx);
 int loop_run(struct context_loop *ctx);
 int loop_epfd(struct context_loop *ctx);
+struct loopconf *loop_conf(struct context_loop *ctx);
 
 struct sk_ops {
     int (*connect)(struct sk_ops *handle, const char *addr, uint16_t port);
