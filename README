@@ -42,13 +42,14 @@ Options:
   -d dns
     DNS hijacking, allow following options:
       -d off
-        Disable DNS hijacking, send DNS requests directly by local network (not proxied).
-      -d proxy
-        Disable DNS hijacking, treat DNS requests as normal UDP packets and proxied.
+        Disable DNS hijacking, treat DNS requests as normal UDP packets.
+      -d direct
+        Disable DNS hijacking, send DNS requests directly via local network.
+        In other words, DNS requests will not proxied.
       -d tcp://<nameserver_ipaddress>
-        Redirect DNS requests to specified TCP nameserver, requests will proxied.
+        Redirect DNS requests to specified TCP nameserver.
       -d udp://<nameserver_ipaddress>
-        Redirect DNS requests to specified UDP nameserver, requests will proxied.
+        Redirect DNS requests to specified UDP nameserver.
     Default value is "tcp://8.8.8.8"
 
 

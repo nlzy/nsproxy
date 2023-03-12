@@ -110,8 +110,8 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
     pcb->recv = &udp_recv_cb;
 
-    if (port == 53 && conf->dnstype != DNSHIJACK_PROXY) {
-        if (conf->dnstype == DNSHIJACK_OFF) {
+    if (port == 53 && conf->dnstype != DNSHIJACK_OFF) {
+        if (conf->dnstype == DNSHIJACK_DIRECT) {
             direct_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
             pcb->conn->connect(pcb->conn, addr, port);
             return;

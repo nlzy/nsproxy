@@ -367,8 +367,8 @@ int main(int argc, char *argv[])
 
     if (strcmp(dns, "off") == 0) {
         conf.dnstype = DNSHIJACK_OFF;
-    } else if (strcmp(dns, "proxy") == 0) {
-        conf.dnstype = DNSHIJACK_PROXY;
+    } else if (strcmp(dns, "direct") == 0) {
+        conf.dnstype = DNSHIJACK_DIRECT;
     } else if (strstr(dns, "tcp://") == dns) {
         conf.dnstype = DNSHIJACK_TCP;
         strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv));

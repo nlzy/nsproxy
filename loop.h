@@ -5,7 +5,7 @@ struct context_loop;
 
 enum {
     DNSHIJACK_OFF,
-    DNSHIJACK_PROXY,
+    DNSHIJACK_DIRECT,
     DNSHIJACK_TCP,
     DNSHIJACK_UDP
 };
