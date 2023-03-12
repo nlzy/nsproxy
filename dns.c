@@ -631,10 +631,9 @@ ssize_t tcpdns_recv(struct sk_ops *handle, char *data, size_t size)
 void tcpdns_destroy(struct sk_ops *handle)
 {
     struct conn_tcpdns *master = container_of(handle, struct conn_tcpdns, ops);
-    size_t i;
 
-    for (i = 0; i < master->nworker; i++) {
-        tcpdns_worker_destroy(master->workers[i]);
+    while (master->nworker) {
+        tcpdns_worker_destroy(master->workers[0]);
     }
 
     free(master);
