@@ -257,18 +257,22 @@ int child(int sk, char *cmd[])
     char dummy;
     uid_t uid, gid;
 
-    uid = getuid();
-    gid = getgid();
+    if (unshare(CLONE_NEWNET) == -1) {
+        /* Failed, of cause. Unprivileged users can't create net_namespace.
+           Try to create with a user_namespace */
+        uid = getuid();
+        gid = getgid();
 
-    if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
-        perror("unshare()");
-        abort();
+        if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
+            perror("unshare()");
+            abort();
+        }
+
+        set_setgroups("deny");
+
+        map_uid(uid, uid);
+        map_gid(gid, gid);
     }
-
-    set_setgroups("deny");
-
-    map_uid(uid, uid);
-    map_gid(gid, gid);
 
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
@@ -337,7 +341,7 @@ int main(int argc, char *argv[])
         port = ishttp ? "8080" : "1080";
 
     if (dns == NULL)
-        dns = "tcp://1.1.1.1";
+        dns = "tcp://8.8.8.8";
 
     /* resolve domain to ip address */
     if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {
