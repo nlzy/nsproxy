@@ -28,7 +28,8 @@ Examples:
 Options:
   -h
     Use http proxy, not socks5.
-    Note: UDP is **NOT** supported in http proxy. UDP packets will drop silently.
+    Note: UDP is **NOT** supported in http proxy. UDP packets will drop and got
+          an ICMP port unreachable message.
 
   -s server
     Proxy server address.

@@ -76,10 +76,16 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 {
     struct sk_ops *conn = pcb->conn;
 
-    if (!conn || !p) {
+    if (!p) {
         udp_remove(pcb);
-        if (p)
-            pbuf_free(p);
+        return;
+    }
+
+    if (!conn) {
+        pbuf_header_force(p, (s16_t)(ip_current_header_tot_len() + UDP_HLEN));
+        icmp_port_unreach(ip_current_is_v6(), p);
+        pbuf_free(p);
+        udp_remove(pcb);
         return;
     }
 
@@ -98,34 +104,31 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
     struct context_loop *loop = ip_current_netif()->state;
+    struct loopconf *conf = loop_conf(loop);
+    char *addr = ipaddr_ntoa(&pcb->local_ip);
+    uint16_t port = pcb->local_port;
 
     pcb->recv = &udp_recv_cb;
 
-    if (pcb->local_port == 53) {
-        switch (loop_conf(loop)->dnstype) {
-        case DNSHIJACK_OFF:
+    if (port == 53 && conf->dnstype != DNSHIJACK_PROXY) {
+        if (conf->dnstype == DNSHIJACK_OFF) {
             direct_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
-            pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
-            break;
-        case DNSHIJACK_PROXY:
-            socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
-            pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
-            break;
-        case DNSHIJACK_TCP:
-            tcpdns_create(&pcb->conn, loop, &udp_handle_event, pcb);
-            pcb->conn->connect(pcb->conn, loop_conf(loop)->dnssrv, 53);
-            break;
-        case DNSHIJACK_UDP:
-            socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
-            pcb->conn->connect(pcb->conn, loop_conf(loop)->dnssrv, 53);
-            break;
-        default:
-            abort();
+            pcb->conn->connect(pcb->conn, addr, port);
+            return;
         }
-    } else {
-        /* TODO: blackhole */
+        if (conf->dnstype == DNSHIJACK_TCP) {
+            tcpdns_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            pcb->conn->connect(pcb->conn, conf->dnssrv, port);
+            return;
+        }
+        if (conf->dnstype == DNSHIJACK_UDP) {
+            addr = conf->dnssrv;
+        }
+    }
+
+    if (conf->proxytype == PROXY_SOCKS5) {
         socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
-        pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), 53);
+        pcb->conn->connect(pcb->conn, addr, port);
     }
 }
 
