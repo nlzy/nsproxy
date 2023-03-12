@@ -1,15 +1,21 @@
 nsproxy
 ====================
 
-nsproxy is a Linux-specific command-line tool, makes almost any application
-force to use a specific SOCKS5 or HTTP proxy.
+nsproxy (namespace proxy) is a Linux-specific command-line tool, makes
+applications force to use a specific SOCKS5 or HTTP proxy.
 
 Functionally similar to tsocks / proxychains-ng / graftcp, but using a
-completely different mechanism. It has the following features:
+totally different mechanism. It create a TUN device and launch applications in
+a fresh network_namespace, then connect the TUN device to a usermode TCP/IP
+stack and redirect connections through proxy server outside the namespace.
+Benefit from namespace mechanism, it doesn't require any privilege, and will
+not affect other processes.
 
- - Works on static linked application.
- - Supported UDP protocol.
- - Supported DNS Hijacking.
+It has the following features:
+
+ - Works on static linked applications.
+ - Support UDP protocol.
+ - Support DNS Hijacking.
  - No privilege required.
 
 
@@ -20,7 +26,7 @@ nsproxy [-h] [-s <server>] [-p <port>] [-d <dns>] [command]
 
 Examples:
   # Use socks5 proxy
-  nsproxy nslookup google.com
+  nsproxy dig google.com A
 
   # Use http proxy
   nsproxy -h curl https://api.ipify.org
@@ -57,10 +63,18 @@ KNOWN ISSUE
 ----------
 
 All {uid,gid} except the current user will be mapped to
-/proc/sys/kernel/overflow{uid,gid}
+"/proc/sys/kernel/overflow{uid,gid}". That's means file owners except the
+current user will be shown as 'nobody', and program like sudo / su will not
+work.
 
-That's means file owners except the current user will be shown as 'nobody',
-and program like sudo / su will not work.
+nsproxy will create a new network_namespace for proxied application, so the
+networking between inside and outside of the namespace is isolated. There's no
+route to the inside of the namespace. It's unable to establish a connection to
+the inside from the outside. In addtion, abstract UNIX domain socket is
+isolated too.
+
+Connection to loopback address will not proxied, and those address is not
+referenced to the host, it's referenced to the inside of the namespace.
 
 
 W.I.P
@@ -69,3 +83,13 @@ W.I.P
  - fullcone NAT
  - IPv6 support
  - fake DNS
+
+
+CREDITS
+----------
+
+lwip - A Lightweight TCP/IP stack
+https://savannah.nongnu.org/projects/lwip/
+
+slirp4netns - User-mode networking for unprivileged network namespaces
+https://github.com/rootless-containers/slirp4netns
