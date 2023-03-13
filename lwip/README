@@ -1,0 +1,6 @@
+This is lwIP v2.1.2, modified for nsproxy.
+
+All modifications are licensed under the original license of lwIP.
+
+Modifications was wrapped around with NSPROXY_MODIFIED, except for somethings
+that are too trivial (e.g. adjust #include)
