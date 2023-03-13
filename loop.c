@@ -61,15 +61,21 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
     struct loopctx *loop = tunif->state;
     char buffer[CONFIG_MTU];
     ssize_t nwrite;
+    char *ptr;
 
     if (p->tot_len > sizeof(buffer)) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: packet too large\n"));
         return ERR_IF;
     }
 
-    pbuf_copy_partial(p, buffer, p->tot_len, 0);
+    if (p->len == p->tot_len) {
+        ptr = p->payload;
+    } else {
+        ptr = buffer;
+        pbuf_copy_partial(p, buffer, p->tot_len, 0);
+    }
 
-    if ((nwrite = write(loop->tunfd, buffer, p->tot_len)) == -1) {
+    if ((nwrite = write(loop->tunfd, ptr, p->tot_len)) == -1) {
         perror("write()");
         abort();
     }

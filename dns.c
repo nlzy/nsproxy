@@ -447,7 +447,7 @@ struct conn_tcpdns {
     char *addr;
     uint16_t port;
 
-    struct conn_tcpdns_worker *workers[16];
+    struct conn_tcpdns_worker *workers[4];
     size_t nworker;
 };
 
