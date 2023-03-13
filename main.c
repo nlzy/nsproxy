@@ -191,7 +191,7 @@ int recv_fd(int sock)
                           .msg_controllen = sizeof(cmsgbuf) };
     struct cmsghdr *cmsg;
 
-    if ((nrecv = recvmsg(sock, &msg, 0)) < 0) {
+    if ((nrecv = recvmsg(sock, &msg, MSG_CMSG_CLOEXEC)) < 0) {
         perror("recvmsg()");
         abort();
     }
