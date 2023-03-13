@@ -22,11 +22,11 @@ struct conn_http {
     struct ep_poller io_poller;
     struct epoll_event io_poller_ev;
 
-    char snd_buffer[512];
-    size_t snd_buffer_size;
+    char sndbuf[512];
+    ssize_t nsndbuf;
 
-    char rcv_buffer[512];
-    size_t rcv_buffer_size;
+    char rcvbuf[512];
+    ssize_t nrcvbuf;
 };
 
 void http_io_event(struct ep_poller *poller, unsigned int event)
@@ -39,26 +39,49 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *h = container_of(poller, struct conn_http, io_poller);
     ssize_t nread;
-    char buffer[2048];
     char *p;
-    size_t s;
+    ssize_t s;
+    char vermin;
+    int code;
 
-    if ((nread = recv(h->sfd, &buffer, sizeof(buffer) - 1, MSG_PEEK)) == -1) {
-        h->userev(h->userp, EPOLLERR);
-        return;
-    }
-    buffer[nread] = '\0';
-
-    p = strstr(buffer, "\r\n\r\n");
-    if (p == NULL) {
-        /* FIXME: save to buffer */
+    if (event & EPOLLERR) {
         h->userev(h->userp, EPOLLERR);
         return;
     }
 
-    s = p - buffer + strlen("\r\n\r\n");
+    if ((nread = recv(h->sfd, h->rcvbuf + h->nrcvbuf,
+                      sizeof(h->rcvbuf) - h->nrcvbuf - 1, MSG_PEEK)) == -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("recv()");
+            abort();
+        }
+        return;
+    }
 
-    if ((nread = recv(h->sfd, &buffer, s, 0)) == -1) {
+    p = strstr(h->rcvbuf, "\r\n\r\n");
+    s = p ? (p + strlen("\r\n\r\n") - (h->rcvbuf + h->nrcvbuf)) : nread;
+
+    if ((nread = recv(h->sfd, h->rcvbuf + h->nrcvbuf, s, 0)) != s) {
+        if (nread == -1 && !is_ignored_skerr(errno)) {
+            perror("recv()");
+            abort();
+        }
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+    h->nrcvbuf += nread;
+
+    if (!p) {
+        if (h->nrcvbuf == sizeof(h->rcvbuf) || nread == 0)
+            h->userev(h->userp, EPOLLERR);
+        return;
+    }
+
+    if (sscanf(h->rcvbuf, "HTTP/1.%c %d", &vermin, &code) != 2) {
+        h->userev(h->userp, EPOLLERR);
+        return;
+    }
+    if (code != 200) {
         h->userev(h->userp, EPOLLERR);
         return;
     }
@@ -76,21 +99,29 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *h = container_of(poller, struct conn_http, io_poller);
     ssize_t nsent;
-    char buffer[2048];
-    ssize_t bufferlen;
 
-    bufferlen =
-        snprintf(buffer, sizeof(buffer), "CONNECT %s:%u HTTP/1.1\r\n\r\n",
-                 h->addr, (unsigned int)h->port);
-
-    if ((nsent = send(h->sfd, &buffer, bufferlen, MSG_NOSIGNAL)) == -1) {
+    if (event & EPOLLERR) {
         h->userev(h->userp, EPOLLERR);
         return;
     }
 
-    if (nsent != bufferlen) {
-        /* FIXME: retry */
-        h->userev(h->userp, EPOLLERR);
+    if (!h->nsndbuf) {
+        h->nsndbuf = snprintf(h->sndbuf, sizeof(h->sndbuf),
+                              "CONNECT %s:%u HTTP/1.1\r\n\r\n", h->addr,
+                              (unsigned int)h->port);
+    }
+
+    if ((nsent = send(h->sfd, h->sndbuf, h->nsndbuf, MSG_NOSIGNAL)) == -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("send()");
+            abort();
+        }
+        return;
+    }
+    h->nsndbuf -= nsent;
+
+    if (h->nsndbuf != 0) {
+        memmove(h->sndbuf, h->sndbuf + nsent, h->nsndbuf);
         return;
     }
 
