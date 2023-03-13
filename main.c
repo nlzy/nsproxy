@@ -156,7 +156,7 @@ void send_fd(int sock, int fd)
 {
     char dummy = '\0';
     struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
-    char cmsgbuf[CMSG_SPACE(sizeof(int))];
+    char cmsgbuf[CMSG_SPACE(sizeof(int))] = { 0 };
     struct msghdr msg = { .msg_name = NULL,
                           .msg_namelen = 0,
                           .msg_iov = &iov,

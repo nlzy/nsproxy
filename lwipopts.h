@@ -68,6 +68,8 @@
 #define SYS_ARCH_PROTECT(lev)      (void)0
 #define SYS_ARCH_UNPROTECT(lev)    (void)0
 
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1
+
 #define lwip_htons(x)                  htobe16(x)
 #define lwip_htonl(x)                  htobe32(x)
 #define lwip_strnstr(buffer, token, n) strnstr(buffer, token, n)
