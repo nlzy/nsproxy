@@ -215,7 +215,7 @@ int parent(int sk, struct loopconf *conf)
     int tunfd;
     int childfd;
     sigset_t mask;
-    struct context_loop *ctx;
+    struct loopctx *loop;
     char dummy = '\0';
 
     tunfd = recv_fd(sk);
@@ -247,8 +247,8 @@ int parent(int sk, struct loopconf *conf)
 
     close(sk);
 
-    loop_init(&ctx, conf, tunfd, childfd);
-    return loop_run(ctx);
+    loop_init(&loop, conf, tunfd, childfd);
+    return loop_run(loop);
 }
 
 int child(int sk, char *cmd[])

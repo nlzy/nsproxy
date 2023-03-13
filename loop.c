@@ -22,7 +22,7 @@
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
 
-struct context_loop {
+struct loopctx {
     int tunfd;
     int sigfd;
     int epfd;
@@ -33,12 +33,12 @@ struct context_loop {
 
 static void tun_input(struct netif *tunif)
 {
-    struct context_loop *ctx = tunif->state;
+    struct loopctx *loop = tunif->state;
     char buffer[CONFIG_MTU];
     ssize_t nread;
     struct pbuf *p;
 
-    if ((nread = read(ctx->tunfd, buffer, sizeof(buffer))) == -1) {
+    if ((nread = read(loop->tunfd, buffer, sizeof(buffer))) == -1) {
         perror("read()");
         abort();
     }
@@ -58,7 +58,7 @@ static void tun_input(struct netif *tunif)
 
 static err_t tun_output(struct netif *tunif, struct pbuf *p)
 {
-    struct context_loop *ctx = tunif->state;
+    struct loopctx *loop = tunif->state;
     char buffer[CONFIG_MTU];
     ssize_t nwrite;
 
@@ -69,7 +69,7 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
 
     pbuf_copy_partial(p, buffer, p->tot_len, 0);
 
-    if ((nwrite = write(ctx->tunfd, buffer, p->tot_len)) == -1) {
+    if ((nwrite = write(loop->tunfd, buffer, p->tot_len)) == -1) {
         perror("write()");
         abort();
     }
@@ -106,10 +106,10 @@ err_t tunif_init(struct netif *netif)
     return ERR_OK;
 }
 
-void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd,
+void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
                int sigfd)
 {
-    struct context_loop *p;
+    struct loopctx *p;
     struct epoll_event ev;
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
@@ -117,7 +117,7 @@ void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd,
     struct itimerspec its = { .it_interval.tv_nsec = 250000000,
                               .it_value.tv_nsec = 250000000 };
 
-    if ((p = malloc(sizeof(struct context_loop))) == NULL) {
+    if ((p = malloc(sizeof(struct loopctx))) == NULL) {
         fprintf(stderr, "Out of Memory\n");
         abort();
     }
@@ -172,20 +172,20 @@ void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd,
 
     memcpy(&p->conf, conf, sizeof(p->conf));
 
-    *ctx = p;
+    *loop = p;
 }
 
-void loop_deinit(struct context_loop *ctx)
+void loop_deinit(struct loopctx *loop)
 {
-    close(ctx->epfd);
-    close(ctx->tunfd);
-    close(ctx->sigfd);
-    close(ctx->timerfd);
-    netif_remove(&ctx->tunif);
-    free(ctx);
+    close(loop->epfd);
+    close(loop->tunfd);
+    close(loop->sigfd);
+    close(loop->timerfd);
+    netif_remove(&loop->tunif);
+    free(loop);
 }
 
-int loop_run(struct context_loop *ctx)
+int loop_run(struct loopctx *loop)
 {
     int i, nevent;
     size_t epoch = 0;
@@ -195,7 +195,7 @@ int loop_run(struct context_loop *ctx)
     struct epoll_event ev[1]; /* TODO: batch event */
 
     for (;;) {
-        if ((nevent = epoll_wait(ctx->epfd, ev, arraysizeof(ev), -1)) == -1) {
+        if ((nevent = epoll_wait(loop->epfd, ev, arraysizeof(ev), -1)) == -1) {
             if (errno != EINTR) {
                 perror("epoll_wait()");
                 abort();
@@ -203,20 +203,20 @@ int loop_run(struct context_loop *ctx)
         }
 
         for (i = 0; i < nevent; i++) {
-            if (ev[i].data.ptr == &ctx->tunfd) {
-                tun_input(&ctx->tunif);
-            } else if (ev[i].data.ptr == &ctx->sigfd) {
-                if (read(ctx->sigfd, &sig, sizeof(sig)) == -1) {
+            if (ev[i].data.ptr == &loop->tunfd) {
+                tun_input(&loop->tunif);
+            } else if (ev[i].data.ptr == &loop->sigfd) {
+                if (read(loop->sigfd, &sig, sizeof(sig)) == -1) {
                     perror("read()");
                     abort();
                 }
                 if (sig.ssi_signo == SIGCHLD) {
-                    loop_deinit(ctx);
+                    loop_deinit(loop);
                     fprintf(stderr, "Bye ~\n");
                     return 0;
                 }
-            } else if (ev[i].data.ptr == &ctx->timerfd) {
-                if (read(ctx->timerfd, &expired, sizeof(expired)) == -1) {
+            } else if (ev[i].data.ptr == &loop->timerfd) {
+                if (read(loop->timerfd, &expired, sizeof(expired)) == -1) {
                     perror("read()");
                     abort();
                 }
@@ -238,12 +238,12 @@ int loop_run(struct context_loop *ctx)
     }
 }
 
-int loop_epfd(struct context_loop *ctx)
+int loop_epfd(struct loopctx *loop)
 {
-    return ctx->epfd;
+    return loop->epfd;
 }
 
-struct loopconf *loop_conf(struct context_loop *ctx)
+struct loopconf *loop_conf(struct loopctx *loop)
 {
-    return &ctx->conf;
+    return &loop->conf;
 }

@@ -103,7 +103,7 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
 void hook_on_udp_new(struct udp_pcb *pcb)
 {
-    struct context_loop *loop = ip_current_netif()->state;
+    struct loopctx *loop = ip_current_netif()->state;
     struct loopconf *conf = loop_conf(loop);
     char *addr = ipaddr_ntoa(&pcb->local_ip);
     uint16_t port = pcb->local_port;
@@ -235,7 +235,7 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 
 void hook_on_tcp_new(struct tcp_pcb *pcb)
 {
-    struct context_loop *loop = ip_current_netif()->state;
+    struct loopctx *loop = ip_current_netif()->state;
 
     tcp_nagle_disable(pcb);
 

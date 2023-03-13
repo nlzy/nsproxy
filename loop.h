@@ -1,7 +1,7 @@
 #pragma once
 #include "common.h"
 
-struct context_loop;
+struct loopctx;
 
 enum {
     DNSHIJACK_OFF,
@@ -23,11 +23,11 @@ struct loopconf {
     uint8_t dnstype;
 };
 
-void loop_init(struct context_loop **ctx, struct loopconf *conf, int tunfd, int sigfd);
-void loop_deinit(struct context_loop *ctx);
-int loop_run(struct context_loop *ctx);
-int loop_epfd(struct context_loop *ctx);
-struct loopconf *loop_conf(struct context_loop *ctx);
+void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd, int sigfd);
+void loop_deinit(struct loopctx *loop);
+int loop_run(struct loopctx *loop);
+int loop_epfd(struct loopctx *loop);
+struct loopconf *loop_conf(struct loopctx *loop);
 
 struct sk_ops {
     int (*connect)(struct sk_ops *handle, const char *addr, uint16_t port);

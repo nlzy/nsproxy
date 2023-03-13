@@ -11,7 +11,7 @@
 
 struct conn_direct {
     struct sk_ops ops;
-    struct context_loop *ctx;
+    struct loopctx *loop;
 
     void (*userev)(void *userp, unsigned int event);
     void *userp;
@@ -61,8 +61,8 @@ int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     h->io_poller.on_epoll_event = &direct_io_event;
     h->io_poller_ev.events = EPOLLIN | EPOLLOUT;
     h->io_poller_ev.data.ptr = &h->io_poller;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_ADD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_ADD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -102,7 +102,7 @@ void direct_evctl(struct sk_ops *handle, unsigned int event, int enable)
     }
 
     if (old != h->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd,
+        if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
                       &h->io_poller_ev) == -1) {
             perror("epoll_ctl()");
             abort();
@@ -160,7 +160,7 @@ void direct_destroy(struct sk_ops *handle)
 {
     struct conn_direct *h = (struct conn_direct *)handle;
 
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -201,28 +201,28 @@ struct conn_direct *direct_create_internel()
     return h;
 }
 
-int direct_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
+int direct_tcp_create(struct sk_ops **handle, struct loopctx *loop,
                       void (*userev)(void *userp, unsigned int event),
                       void *userp)
 {
     struct conn_direct *h = direct_create_internel();
 
     h->isudp = 0;
-    h->ctx = ctx;
+    h->loop = loop;
     h->userev = userev;
     h->userp = userp;
     *handle = &h->ops;
     return 0;
 }
 
-int direct_udp_create(struct sk_ops **handle, struct context_loop *ctx,
+int direct_udp_create(struct sk_ops **handle, struct loopctx *loop,
                       void (*userev)(void *userp, unsigned int event),
                       void *userp)
 {
     struct conn_direct *h = direct_create_internel();
 
     h->isudp = 1;
-    h->ctx = ctx;
+    h->loop = loop;
     h->userev = userev;
     h->userp = userp;
     *handle = &h->ops;

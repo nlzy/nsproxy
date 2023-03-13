@@ -11,7 +11,7 @@
 
 struct conn_socks {
     struct sk_ops ops;
-    struct context_loop *ctx;
+    struct loopctx *loop;
 
     void (*userev)(void *userp, unsigned int event);
     void *userp;
@@ -67,8 +67,8 @@ void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
 
     h->io_poller_ev.events = EPOLLIN | EPOLLOUT;
     h->io_poller.on_epoll_event = &socks_io_event;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -96,8 +96,8 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
 
     h->io_poller_ev.events = EPOLLIN;
     h->io_poller.on_epoll_event = &socks_handshake_phase_4;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -126,8 +126,8 @@ void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
     h->io_poller_ev.events = EPOLLOUT;
     h->io_poller.on_epoll_event = &socks_handshake_phase_3;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -152,8 +152,8 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 
     h->io_poller_ev.events = EPOLLIN;
     h->io_poller.on_epoll_event = &socks_handshake_phase_2;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -162,7 +162,7 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
-    struct loopconf *conf = loop_conf(h->ctx);
+    struct loopconf *conf = loop_conf(h->loop);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
@@ -193,8 +193,8 @@ int socks_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     }
 
     h->io_poller_ev.data.ptr = &h->io_poller;
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_ADD, h->sfd, &h->io_poller_ev) ==
-        -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_ADD, h->sfd,
+                  &h->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -242,7 +242,7 @@ void socks_evctl(struct sk_ops *handle, unsigned int event, int enable)
     }
 
     if (old != h->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_MOD, h->sfd,
+        if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
                       &h->io_poller_ev) == -1) {
             perror("epoll_ctl()");
             abort();
@@ -343,7 +343,7 @@ void socks_destroy(struct sk_ops *handle)
 {
     struct conn_socks *h = (struct conn_socks *)handle;
 
-    if (epoll_ctl(loop_epfd(h->ctx), EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
+    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
         perror("epoll_ctl()");
         abort();
     }
@@ -384,28 +384,28 @@ struct conn_socks *socks_create_internal()
     return h;
 }
 
-int socks_tcp_create(struct sk_ops **handle, struct context_loop *ctx,
+int socks_tcp_create(struct sk_ops **handle, struct loopctx *loop,
                      void (*userev)(void *userp, unsigned int event),
                      void *userp)
 {
     struct conn_socks *h = socks_create_internal();
 
     h->isudp = 0;
-    h->ctx = ctx;
+    h->loop = loop;
     h->userev = userev;
     h->userp = userp;
     *handle = &h->ops;
     return 0;
 }
 
-int socks_udp_create(struct sk_ops **handle, struct context_loop *ctx,
+int socks_udp_create(struct sk_ops **handle, struct loopctx *loop,
                      void (*userev)(void *userp, unsigned int event),
                      void *userp)
 {
     struct conn_socks *h = socks_create_internal();
 
     h->isudp = 1;
-    h->ctx = ctx;
+    h->loop = loop;
     h->userev = userev;
     h->userp = userp;
     *handle = &h->ops;

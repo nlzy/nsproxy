@@ -268,11 +268,13 @@ ssize_t dns_answer_get(struct dnsanswer *ans, const char *buffer, size_t size)
 
 struct conn_fakedns {
     struct sk_ops ops;
+    struct loopctx *loop;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
+
     struct dnshdr hdr;
     struct dnsquery query;
-    struct context_loop *ctx;
     uint8_t rcode;
 };
 
@@ -401,7 +403,7 @@ void fakedns_destroy(struct sk_ops *handle)
     free(h);
 }
 
-int fakedns_create(struct sk_ops **handle, struct context_loop *ctx,
+int fakedns_create(struct sk_ops **handle, struct loopctx *loop,
                    void (*userev)(void *userp, unsigned int event), void *userp)
 {
     struct conn_fakedns *h;
@@ -421,7 +423,7 @@ int fakedns_create(struct sk_ops **handle, struct context_loop *ctx,
     h->userev = userev;
     h->userp = userp;
 
-    h->ctx = ctx;
+    h->loop = loop;
 
     *handle = &h->ops;
     return 0;
@@ -437,13 +439,16 @@ struct conn_tcpdns_worker;
 
 struct conn_tcpdns {
     struct sk_ops ops;
+    struct loopctx *loop;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
-    struct context_loop *ctx;
+
+    char *addr;
+    uint16_t port;
+
     struct conn_tcpdns_worker *workers[16];
     size_t nworker;
-    char addr[512];
-    uint16_t port;
 };
 
 struct conn_tcpdns_worker {
@@ -544,7 +549,7 @@ int tcpdns_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     if (strlen(addr) >= 512)
         return -1;
 
-    strcpy(master->addr, addr);
+    master->addr = strdup(addr);
     master->port = port;
 
     return 0;
@@ -583,12 +588,12 @@ ssize_t tcpdns_send(struct sk_ops *handle, const char *data, size_t size)
     memcpy(worker->sndbuf + 2, data, size);
     worker->nsndbuf = size + 2;
 
-    if (loop_conf(master->ctx)->proxytype == PROXY_SOCKS5)
-        socks_tcp_create(&worker->conn, master->ctx,
+    if (loop_conf(master->loop)->proxytype == PROXY_SOCKS5)
+        socks_tcp_create(&worker->conn, master->loop,
                          &tcpdns_worker_handle_event, worker);
-    else if (loop_conf(master->ctx)->proxytype == PROXY_HTTP)
-        http_tcp_create(&worker->conn, master->ctx, &tcpdns_worker_handle_event,
-                        worker);
+    else if (loop_conf(master->loop)->proxytype == PROXY_HTTP)
+        http_tcp_create(&worker->conn, master->loop,
+                        &tcpdns_worker_handle_event, worker);
     else
         abort();
 
@@ -635,11 +640,11 @@ void tcpdns_destroy(struct sk_ops *handle)
     while (master->nworker) {
         tcpdns_worker_destroy(master->workers[0]);
     }
-
+    free(master->addr);
     free(master);
 }
 
-int tcpdns_create(struct sk_ops **handle, struct context_loop *ctx,
+int tcpdns_create(struct sk_ops **handle, struct loopctx *loop,
                   void (*userev)(void *userp, unsigned int event), void *userp)
 {
     struct conn_tcpdns *master;
@@ -659,7 +664,7 @@ int tcpdns_create(struct sk_ops **handle, struct context_loop *ctx,
     master->userev = userev;
     master->userp = userp;
 
-    master->ctx = ctx;
+    master->loop = loop;
 
     *handle = &master->ops;
     return 0;
