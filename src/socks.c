@@ -277,7 +277,7 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
         struct socks5addr ad;
         ssize_t ret;
 
-        strncpy(ad.addr, h->addr, sizeof(ad.addr));
+        strncpy(ad.addr, h->addr, sizeof(ad.addr) - 1);
         ad.port = h->port;
 
         ret = socks5_hdr_put(h->sndbuf + h->nsndbuf,
@@ -513,7 +513,7 @@ ssize_t socks_send(struct sk_ops *handle, const char *data, size_t size)
         size_t offset = 0;
         ssize_t ret;
 
-        strncpy(addr.addr, h->addr, sizeof(addr.addr));
+        strncpy(addr.addr, h->addr, sizeof(addr.addr) - 1);
         addr.port = h->port;
 
         if ((ret = socks5_hdr_put(buffer + offset, sizeof(buffer) - offset,

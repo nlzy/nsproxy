@@ -371,10 +371,10 @@ int main(int argc, char *argv[])
         conf.dnstype = DNSHIJACK_DIRECT;
     } else if (strstr(dns, "tcp://") == dns) {
         conf.dnstype = DNSHIJACK_TCP;
-        strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv));
+        strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv) - 1);
     } else if (strstr(dns, "udp://") == dns) {
         conf.dnstype = DNSHIJACK_UDP;
-        strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv));
+        strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
     } else {
         fprintf(stderr, "Unsupported dns address type.\n");
         abort();
