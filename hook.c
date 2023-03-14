@@ -187,14 +187,13 @@ void tcp_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLOUT) {
-        if (pcb->nrcvq == 0) {
+        if (pcb->rcvq == NULL) {
             nsent = -1;
         } else {
-            nsent = conn->send(conn, pcb->rcvq, pcb->nrcvq);
+            nsent = conn->send(conn, pcb->rcvq->payload, pcb->rcvq->len);
         }
         if (nsent > 0) {
-            pcb->nrcvq -= nsent;
-            memmove(pcb->rcvq, pcb->rcvq + nsent, pcb->nrcvq);
+            pcb->rcvq = pbuf_free_header(pcb->rcvq, nsent);
             tcp_recved(pcb, nsent);
         } else if (nsent == -EAGAIN) {
             conn->evctl(conn, EPOLLOUT, 1);
@@ -242,9 +241,10 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 
     tcp_ack(pcb);
 
-    pbuf_copy_partial(p, pcb->rcvq + pcb->nrcvq, p->tot_len, 0);
-    pcb->nrcvq += p->tot_len;
-    pbuf_free(p);
+    if (pcb->rcvq)
+        pbuf_cat(pcb->rcvq, p);
+    else
+        pcb->rcvq = p;
 
     tcp_handle_event(pcb, EPOLLOUT);
     return ERR_OK;

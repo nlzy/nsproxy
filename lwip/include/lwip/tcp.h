@@ -393,9 +393,8 @@ struct tcp_pcb {
 
 #if NSPROXY_MODIFIED
   struct sk_ops *conn;
-  char rcvq[TCP_WND];
-  size_t nrcvq;
   struct pbuf *sndq;
+  struct pbuf *rcvq;
 #endif
 };
 

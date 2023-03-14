@@ -218,6 +218,8 @@ tcp_free(struct tcp_pcb *pcb)
     pcb->conn->destroy(pcb->conn);
   if (pcb->sndq)
     pbuf_free(pcb->sndq);
+  if (pcb->rcvq)
+    pbuf_free(pcb->rcvq);
 #endif
   memp_free(MEMP_TCP_PCB, pcb);
 }
