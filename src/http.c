@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -140,6 +141,7 @@ int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     struct loopconf *conf = loop_conf(h->loop);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
+    int const enable = 1;
 
     getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
 
@@ -147,6 +149,12 @@ int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
                          SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
         -1) {
         perror("socket()");
+        abort();
+    }
+
+    if (setsockopt(h->sfd, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable)) ==
+        -1) {
+        perror("setsockopt()");
         abort();
     }
 

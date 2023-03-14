@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -38,6 +39,7 @@ int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
     struct addrinfo *result;
     char strport[8];
     int sktype = h->isudp ? SOCK_DGRAM : SOCK_STREAM;
+    int const enable = 1;
 
     snprintf(strport, sizeof(strport), "%u", (unsigned int)port);
 
@@ -47,6 +49,14 @@ int direct_connect(struct sk_ops *handle, const char *addr, uint16_t port)
                          sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
         perror("socket()");
         abort();
+    }
+
+    if (!h->isudp) {
+        if (setsockopt(h->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
+                       sizeof(int)) == -1) {
+            perror("setsockopt()");
+            abort();
+        }
     }
 
     if (connect(h->sfd, result->ai_addr, result->ai_addrlen) == -1) {
