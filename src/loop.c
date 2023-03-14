@@ -38,7 +38,7 @@ static void tun_input(struct netif *tunif)
     ssize_t nread;
     struct pbuf *p;
 
-    if ((p = pbuf_alloc(PBUF_RAW, CONFIG_MTU, PBUF_RAM)) == NULL) {
+    if ((p = pbuf_alloc(PBUF_RAW, NSPROXY_MTU, PBUF_RAM)) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
@@ -64,7 +64,7 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
     size_t n = 0;
     ssize_t nwrite;
 
-    if (p->tot_len > CONFIG_MTU) {
+    if (p->tot_len > NSPROXY_MTU) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: packet too large\n"));
         return ERR_IF;
     }
@@ -110,7 +110,7 @@ err_t tunif_init(struct netif *netif)
     netif->output = tunip4_output;
     netif->output_ip6 = tunip6_output;
     netif->linkoutput = tun_output;
-    netif->mtu = CONFIG_MTU;
+    netif->mtu = NSPROXY_MTU;
 
     return ERR_OK;
 }
@@ -169,8 +169,8 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
     }
 
     lwip_init();
-    ip4addr_aton(CONFIG_GATEWAY_IP, &tunaddr);
-    ip4addr_aton(CONFIG_NETMASK, &tunnetmask);
+    ip4addr_aton(NSPROXY_GATEWAY_IP, &tunaddr);
+    ip4addr_aton(NSPROXY_NETMASK, &tunnetmask);
     ip4addr_aton("0.0.0.0", &tungateway);
 
     netif_add(&p->tunif, &tunaddr, &tunnetmask, &tungateway, p, &tunif_init,

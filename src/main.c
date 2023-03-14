@@ -16,6 +16,7 @@
 
 #include "common.h"
 #include "loop.h"
+#include "lwip/opt.h"
 
 static void write_string(const char *fname, const char *str)
 {
@@ -100,7 +101,7 @@ static int bringup_tun(void)
         abort();
     }
 
-    ifr.ifr_mtu = CONFIG_MTU;
+    ifr.ifr_mtu = NSPROXY_MTU;
     if (ioctl(sk, SIOCSIFMTU, &ifr) == -1) {
         perror("ioctl()");
         abort();
@@ -109,19 +110,19 @@ static int bringup_tun(void)
     sai = (struct sockaddr_in *)&ifr.ifr_addr;
     sai->sin_family = AF_INET;
 
-    inet_pton(AF_INET, CONFIG_LOCAL_IP, &sai->sin_addr);
+    inet_pton(AF_INET, NSPROXY_LOCAL_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFADDR, &ifr) < 0) {
         perror("ioctl()");
         abort();
     }
 
-    inet_pton(AF_INET, CONFIG_GATEWAY_IP, &sai->sin_addr);
+    inet_pton(AF_INET, NSPROXY_GATEWAY_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCGIFDSTADDR, &ifr) < 0) {
         perror("ioctl()");
         abort();
     }
 
-    inet_pton(AF_INET, CONFIG_NETMASK, &sai->sin_addr);
+    inet_pton(AF_INET, NSPROXY_NETMASK, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFNETMASK, &ifr) < 0) {
         perror("cannot set device netmask");
         abort();
@@ -129,7 +130,7 @@ static int bringup_tun(void)
 
     sai = (struct sockaddr_in *)&route.rt_gateway;
     sai->sin_family = AF_INET;
-    inet_pton(AF_INET, CONFIG_GATEWAY_IP, &sai->sin_addr);
+    inet_pton(AF_INET, NSPROXY_GATEWAY_IP, &sai->sin_addr);
 
     sai = (struct sockaddr_in *)&route.rt_dst;
     sai->sin_family = AF_INET;

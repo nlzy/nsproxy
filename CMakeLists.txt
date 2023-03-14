@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.0)
 
 project(nsproxy C)
 
@@ -30,16 +30,16 @@ add_executable(nsproxy
     lwip/tcp_in.c
     lwip/tcp_out.c
     lwip/udp.c
-    main.c
-    hook.c
-    loop.c
-    direct.c
-    socks.c
-    http.c
-    dns.c
+    src/main.c
+    src/hook.c
+    src/loop.c
+    src/direct.c
+    src/socks.c
+    src/http.c
+    src/dns.c
 )
 
 target_include_directories(nsproxy PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/lwip/include
-    ${CMAKE_CURRENT_LIST_DIR}
+    "${CMAKE_CURRENT_LIST_DIR}/lwip/include"
+    "${CMAKE_CURRENT_LIST_DIR}/src"
 )

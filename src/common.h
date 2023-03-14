@@ -23,8 +23,3 @@
     ((err) == ECONNRESET || (err) == ECONNREFUSED || (err) == EPIPE || \
      (err) == ETIMEDOUT || (err) == EINPROGRESS || (err) == EAGAIN ||  \
      (err) == ENOTCONN)
-
-#define CONFIG_LOCAL_IP   "172.23.255.255"
-#define CONFIG_GATEWAY_IP "172.23.255.254"
-#define CONFIG_NETMASK    "255.255.255.254"
-#define CONFIG_MTU        65000

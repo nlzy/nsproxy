@@ -1,3 +1,5 @@
+#pragma once
+
 #define NO_SYS       1
 #define LWIP_SOCKET  0
 #define LWIP_NETCONN 0
@@ -80,3 +82,8 @@
     snprintf(result, bufsize, "%d", number)
 
 #define NSPROXY_MODIFIED 1
+
+#define NSPROXY_LOCAL_IP   "172.23.255.255"
+#define NSPROXY_GATEWAY_IP "172.23.255.254"
+#define NSPROXY_NETMASK    "255.255.255.254"
+#define NSPROXY_MTU        65000
