@@ -221,7 +221,6 @@ int loop_run(struct loopctx *loop)
                 }
                 if (sig.ssi_signo == SIGCHLD) {
                     loop_deinit(loop);
-                    fprintf(stderr, "Bye ~\n");
                     return 0;
                 }
             } else if (ev[i].data.ptr == &loop->timerfd) {

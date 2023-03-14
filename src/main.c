@@ -220,7 +220,6 @@ static int parent(int sk, struct loopconf *conf)
     char dummy = '\0';
 
     tunfd = recv_fd(sk);
-    fprintf(stderr, "recv_fd: %d\n", tunfd);
 
     if (sigemptyset(&mask) == -1) {
         perror("sigemptyset()");
