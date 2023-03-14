@@ -87,14 +87,14 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
     return ERR_OK;
 }
 
-err_t tunip4_output(struct netif *netif, struct pbuf *p,
-                    const ip4_addr_t *ipaddr)
+static err_t tunip4_output(struct netif *netif, struct pbuf *p,
+                           const ip4_addr_t *ipaddr)
 {
     return tun_output(netif, p);
 }
 
-err_t tunip6_output(struct netif *netif, struct pbuf *p,
-                    const ip6_addr_t *ipaddr)
+static err_t tunip6_output(struct netif *netif, struct pbuf *p,
+                           const ip6_addr_t *ipaddr)
 {
     return tun_output(netif, p);
 }

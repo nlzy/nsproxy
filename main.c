@@ -34,26 +34,26 @@ static void write_string(const char *fname, const char *str)
     close(fd);
 }
 
-void map_uid(unsigned int from, unsigned int to)
+static void map_uid(unsigned int from, unsigned int to)
 {
     char str[32];
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
     write_string("/proc/self/uid_map", str);
 }
 
-void map_gid(unsigned int from, unsigned int to)
+static void map_gid(unsigned int from, unsigned int to)
 {
     char str[32];
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
     write_string("/proc/self/gid_map", str);
 }
 
-void set_setgroups(const char *action)
+static void set_setgroups(const char *action)
 {
     write_string("/proc/self/setgroups", action);
 }
 
-void bringup_loopback()
+static void bringup_loopback(void)
 {
     int sk;
     struct ifreq ifr = { .ifr_name = "lo", .ifr_flags = IFF_UP | IFF_RUNNING };
@@ -71,7 +71,7 @@ void bringup_loopback()
     close(sk);
 }
 
-int bringup_tun()
+static int bringup_tun(void)
 {
     int tunfd, sk;
     struct ifreq ifr = { .ifr_name = "tun0" };
@@ -152,7 +152,7 @@ int bringup_tun()
     return tunfd;
 }
 
-void send_fd(int sock, int fd)
+static void send_fd(int sock, int fd)
 {
     char dummy = '\0';
     struct iovec iov = { .iov_base = &dummy, .iov_len = 1 };
@@ -176,7 +176,7 @@ void send_fd(int sock, int fd)
     }
 }
 
-int recv_fd(int sock)
+static int recv_fd(int sock)
 {
     int ret;
     ssize_t nrecv;
@@ -210,7 +210,7 @@ int recv_fd(int sock)
     return ret;
 }
 
-int parent(int sk, struct loopconf *conf)
+static int parent(int sk, struct loopconf *conf)
 {
     int tunfd;
     int childfd;
@@ -251,7 +251,7 @@ int parent(int sk, struct loopconf *conf)
     return loop_run(loop);
 }
 
-int child(int sk, char *cmd[])
+static int child(int sk, char *cmd[])
 {
     int tunfd;
     char dummy;

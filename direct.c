@@ -182,7 +182,7 @@ void direct_destroy(struct sk_ops *handle)
     free(h);
 }
 
-struct conn_direct *direct_create_internel()
+static struct conn_direct *direct_create_internel(void)
 {
     struct conn_direct *h;
 

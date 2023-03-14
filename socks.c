@@ -54,7 +54,8 @@ struct socks5addr {
 #define SOCKS5_CMD_CONNECT  1
 #define SOCKS5_CMD_UDPASSOC 3
 
-ssize_t socks5_hdr_put(char *buffer, size_t size, const struct socks5hdr *hdr)
+static ssize_t socks5_hdr_put(char *buffer, size_t size,
+                              const struct socks5hdr *hdr)
 {
     if (sizeof(struct socks5hdr) > size)
         return -1;
@@ -62,7 +63,8 @@ ssize_t socks5_hdr_put(char *buffer, size_t size, const struct socks5hdr *hdr)
     return sizeof(struct socks5hdr);
 }
 
-ssize_t socks5_hdr_get(struct socks5hdr *hdr, const char *buffer, size_t size)
+static ssize_t socks5_hdr_get(struct socks5hdr *hdr, const char *buffer,
+                              size_t size)
 {
     if (sizeof(struct socks5hdr) > size)
         return -1;
@@ -70,7 +72,8 @@ ssize_t socks5_hdr_get(struct socks5hdr *hdr, const char *buffer, size_t size)
     return sizeof(struct socks5hdr);
 }
 
-ssize_t socks5_addr_put(char *buffer, size_t size, const struct socks5addr *ad)
+static ssize_t socks5_addr_put(char *buffer, size_t size,
+                               const struct socks5addr *ad)
 {
     size_t offset = 0;
     struct in_addr in4;
@@ -118,7 +121,8 @@ ssize_t socks5_addr_put(char *buffer, size_t size, const struct socks5addr *ad)
     return offset;
 }
 
-ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer, size_t size)
+static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
+                               size_t size)
 {
     const char *cur = buffer;
     struct in_addr in4;

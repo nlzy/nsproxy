@@ -67,7 +67,7 @@ struct dnsanswer {
     char resource[256];
 };
 
-ssize_t dns_hdr_put(char *buffer, size_t size, const struct dnshdr *hdr)
+static ssize_t dns_hdr_put(char *buffer, size_t size, const struct dnshdr *hdr)
 {
     struct dnshdr hdrbe = {
         .id = htobe16(hdr->id),
@@ -85,7 +85,7 @@ ssize_t dns_hdr_put(char *buffer, size_t size, const struct dnshdr *hdr)
     return sizeof(hdrbe);
 }
 
-ssize_t dns_hdr_get(struct dnshdr *hdr, const char *buffer, size_t size)
+static ssize_t dns_hdr_get(struct dnshdr *hdr, const char *buffer, size_t size)
 {
     if (sizeof(struct dnshdr) > size)
         return -1;
@@ -101,7 +101,8 @@ ssize_t dns_hdr_get(struct dnshdr *hdr, const char *buffer, size_t size)
     return sizeof(struct dnshdr);
 }
 
-ssize_t dns_query_put(char *buffer, size_t size, const struct dnsquery *q)
+static ssize_t dns_query_put(char *buffer, size_t size,
+                             const struct dnsquery *q)
 {
     char *cur = buffer;
     size_t namelen = strlen(q->name) + 1;
@@ -126,7 +127,8 @@ ssize_t dns_query_put(char *buffer, size_t size, const struct dnsquery *q)
     return cur - buffer;
 }
 
-ssize_t dns_query_get(struct dnsquery *q, const char *buffer, size_t size)
+static ssize_t dns_query_get(struct dnsquery *q, const char *buffer,
+                             size_t size)
 {
     const char *cur = buffer;
     uint8_t c;
@@ -166,7 +168,8 @@ ssize_t dns_query_get(struct dnsquery *q, const char *buffer, size_t size)
     return cur - buffer;
 }
 
-ssize_t dns_answer_put(char *buffer, size_t size, const struct dnsanswer *ans)
+static ssize_t dns_answer_put(char *buffer, size_t size,
+                              const struct dnsanswer *ans)
 {
     char *cur = buffer;
     size_t namelen = strlen(ans->name) + 1;
@@ -208,7 +211,8 @@ ssize_t dns_answer_put(char *buffer, size_t size, const struct dnsanswer *ans)
     return cur - buffer;
 }
 
-ssize_t dns_answer_get(struct dnsanswer *ans, const char *buffer, size_t size)
+static ssize_t dns_answer_get(struct dnsanswer *ans, const char *buffer,
+                              size_t size)
 {
     const char *cur = buffer;
     uint8_t c;
