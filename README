@@ -15,7 +15,7 @@ It has the following features:
 
  - Works on static linked applications.
  - Support UDP protocol.
- - Support DNS Hijacking.
+ - Support DNS requests redirect.
  - No privilege required.
 
 
@@ -46,12 +46,11 @@ Options:
     Default value is "1080" for socks, "8080" for http
 
   -d dns
-    DNS hijacking, allow following options:
+    DNS redirect, allow following options:
       -d off
-        Disable DNS hijacking, treat DNS requests as normal UDP packets.
+        Disable DNS redirect, treat DNS requests as normal UDP packets.
       -d direct
-        Disable DNS hijacking, send DNS requests directly via local network.
-        In other words, DNS requests will not proxied.
+        Send DNS requests directly via local network (not proxied).
       -d tcp://<nameserver_ipaddress>
         Redirect DNS requests to specified TCP nameserver.
       -d udp://<nameserver_ipaddress>
