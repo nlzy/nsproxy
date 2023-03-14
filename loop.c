@@ -34,21 +34,20 @@ struct loopctx {
 static void tun_input(struct netif *tunif)
 {
     struct loopctx *loop = tunif->state;
-    char buffer[CONFIG_MTU];
     ssize_t nread;
     struct pbuf *p;
 
-    if ((nread = read(loop->tunfd, buffer, sizeof(buffer))) == -1) {
-        perror("read()");
-        abort();
-    }
-
-    if ((p = pbuf_alloc(PBUF_RAW, nread, PBUF_RAM)) == NULL) {
+    if ((p = pbuf_alloc(PBUF_RAW, CONFIG_MTU, PBUF_RAM)) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
-    pbuf_take(p, buffer, nread);
+    if ((nread = read(loop->tunfd, p->payload, p->len)) == -1) {
+        perror("read()");
+        abort();
+    }
+
+    pbuf_realloc(p, nread);
 
     if (tunif->input(p, tunif) != ERR_OK) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_input: netif input error\n"));
