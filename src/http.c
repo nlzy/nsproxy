@@ -313,7 +313,7 @@ int http_tcp_create(struct sk_ops **handle, struct loopctx *loop,
     struct conn_http *h;
 
     if ((h = calloc(1, sizeof(struct conn_http))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 

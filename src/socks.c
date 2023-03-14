@@ -74,27 +74,27 @@ static ssize_t socks5_hdr_get(struct socks5hdr *hdr, const char *buffer,
 }
 
 static ssize_t socks5_addr_put(char *buffer, size_t size,
-                               const struct socks5addr *ad)
+                               const struct socks5addr *addr)
 {
     size_t offset = 0;
     struct in_addr in4;
     struct in6_addr in6;
     uint8_t atype, alen;
     const void *aptr;
-    uint16_t portbe = htobe16(ad->port);
+    uint16_t portbe = htobe16(addr->port);
 
-    if (inet_pton(AF_INET, ad->addr, &in4) == 1) {
+    if (inet_pton(AF_INET, addr->addr, &in4) == 1) {
         atype = SOCKS5_ATYPE_INET4;
         alen = sizeof(in4);
         aptr = &in4;
-    } else if (inet_pton(AF_INET6, ad->addr, &in6) == 1) {
+    } else if (inet_pton(AF_INET6, addr->addr, &in6) == 1) {
         atype = SOCKS5_ATYPE_INET6;
         alen = sizeof(in6);
         aptr = &in6;
     } else {
         atype = SOCKS5_ATYPE_DOMAIN;
-        alen = strlen(ad->addr);
-        aptr = ad->addr;
+        alen = strlen(addr->addr);
+        aptr = addr->addr;
     }
 
     if (atype == SOCKS5_ATYPE_DOMAIN) {
@@ -122,7 +122,7 @@ static ssize_t socks5_addr_put(char *buffer, size_t size,
     return offset;
 }
 
-static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
+static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
                                size_t size)
 {
     const char *cur = buffer;
@@ -143,7 +143,7 @@ static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
         memcpy(&in4, cur, sizeof(in4));
         cur += sizeof(in4);
 
-        inet_ntop(AF_INET, &in4, ad->addr, sizeof(ad->addr));
+        inet_ntop(AF_INET, &in4, addr->addr, sizeof(addr->addr));
         break;
 
     case SOCKS5_ATYPE_INET6:
@@ -152,7 +152,7 @@ static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
         memcpy(&in6, cur, sizeof(in6));
         cur += sizeof(in6);
 
-        inet_ntop(AF_INET6, &in6, ad->addr, sizeof(ad->addr));
+        inet_ntop(AF_INET6, &in6, addr->addr, sizeof(addr->addr));
         break;
 
     case SOCKS5_ATYPE_DOMAIN:
@@ -163,8 +163,8 @@ static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
 
         if (cur - buffer + alen > (ssize_t)size)
             return -1;
-        memset(ad->addr, 0, sizeof(ad->addr));
-        memcpy(ad->addr, cur, alen);
+        memset(addr->addr, 0, sizeof(addr->addr));
+        memcpy(addr->addr, cur, alen);
         cur += alen;
         break;
 
@@ -177,7 +177,7 @@ static ssize_t socks5_addr_get(struct socks5addr *ad, const char *buffer,
     memcpy(&portbe, cur, sizeof(portbe));
     cur += sizeof(portbe);
 
-    ad->port = be16toh(portbe);
+    addr->port = be16toh(portbe);
 
     return cur - buffer;
 }
@@ -645,7 +645,7 @@ struct conn_socks *socks_create_internal()
     struct conn_socks *h;
 
     if ((h = calloc(1, sizeof(struct conn_socks))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 

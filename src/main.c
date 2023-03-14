@@ -366,14 +366,14 @@ int main(int argc, char *argv[])
     freeaddrinfo(result);
 
     if (strcmp(dns, "off") == 0) {
-        conf.dnstype = DNSHIJACK_OFF;
+        conf.dnstype = DNS_REDIR_OFF;
     } else if (strcmp(dns, "direct") == 0) {
-        conf.dnstype = DNSHIJACK_DIRECT;
+        conf.dnstype = DNS_REDIR_DIRECT;
     } else if (strstr(dns, "tcp://") == dns) {
-        conf.dnstype = DNSHIJACK_TCP;
+        conf.dnstype = DNS_REDIR_TCP;
         strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv) - 1);
     } else if (strstr(dns, "udp://") == dns) {
-        conf.dnstype = DNSHIJACK_UDP;
+        conf.dnstype = DNS_REDIR_UDP;
         strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
     } else {
         fprintf(stderr, "Unsupported dns address type.\n");

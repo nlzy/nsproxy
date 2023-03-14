@@ -197,7 +197,7 @@ static struct conn_direct *direct_create_internel(void)
     struct conn_direct *h;
 
     if ((h = malloc(sizeof(struct conn_direct))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 

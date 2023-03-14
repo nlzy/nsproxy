@@ -26,10 +26,11 @@ nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [command]
 
 Examples:
   # Use socks5 proxy
-  nsproxy dig google.com A
+  nsproxy dig example.com A
 
   # Use http proxy
-  nsproxy -H curl https://api.ipify.org
+  nsproxy -H curl example.com
+
 
 Options:
   -H
@@ -79,8 +80,8 @@ referenced to the host, it's referenced to the inside of the namespace.
 W.I.P
 ----------
 
+ - IPv6
  - fullcone NAT
- - IPv6 support
  - fake DNS
 
 

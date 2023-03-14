@@ -127,7 +127,7 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
                               .it_value.tv_nsec = 250000000 };
 
     if ((p = malloc(sizeof(struct loopctx))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 

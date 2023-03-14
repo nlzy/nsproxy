@@ -110,18 +110,18 @@ void hook_on_udp_new(struct udp_pcb *pcb)
 
     pcb->recv = &udp_recv_cb;
 
-    if (port == 53 && conf->dnstype != DNSHIJACK_OFF) {
-        if (conf->dnstype == DNSHIJACK_DIRECT) {
+    if (port == 53 && conf->dnstype != DNS_REDIR_OFF) {
+        if (conf->dnstype == DNS_REDIR_DIRECT) {
             direct_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
             pcb->conn->connect(pcb->conn, addr, port);
             return;
         }
-        if (conf->dnstype == DNSHIJACK_TCP) {
+        if (conf->dnstype == DNS_REDIR_TCP) {
             tcpdns_create(&pcb->conn, loop, &udp_handle_event, pcb);
             pcb->conn->connect(pcb->conn, conf->dnssrv, port);
             return;
         }
-        if (conf->dnstype == DNSHIJACK_UDP) {
+        if (conf->dnstype == DNS_REDIR_UDP) {
             addr = conf->dnssrv;
         }
     }

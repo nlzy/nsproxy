@@ -413,7 +413,7 @@ int fakedns_create(struct sk_ops **handle, struct loopctx *loop,
     struct conn_fakedns *h;
 
     if ((h = malloc(sizeof(struct conn_fakedns))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
@@ -654,7 +654,7 @@ int tcpdns_create(struct sk_ops **handle, struct loopctx *loop,
     struct conn_tcpdns *master;
 
     if ((master = calloc(1, sizeof(struct conn_tcpdns))) == NULL) {
-        fprintf(stderr, "Out of Memory\n");
+        fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 

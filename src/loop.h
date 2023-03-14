@@ -4,10 +4,10 @@
 struct loopctx;
 
 enum {
-    DNSHIJACK_OFF,
-    DNSHIJACK_DIRECT,
-    DNSHIJACK_TCP,
-    DNSHIJACK_UDP
+    DNS_REDIR_OFF,
+    DNS_REDIR_DIRECT,
+    DNS_REDIR_TCP,
+    DNS_REDIR_UDP
 };
 
 enum {
