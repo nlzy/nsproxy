@@ -9,6 +9,7 @@
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/timerfd.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -58,27 +59,30 @@ static void tun_input(struct netif *tunif)
 static err_t tun_output(struct netif *tunif, struct pbuf *p)
 {
     struct loopctx *loop = tunif->state;
-    char buffer[CONFIG_MTU];
+    struct pbuf *orig = p;
+    struct iovec iov[16];
+    size_t n = 0;
     ssize_t nwrite;
-    char *ptr;
 
-    if (p->tot_len > sizeof(buffer)) {
+    if (p->tot_len > CONFIG_MTU) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: packet too large\n"));
         return ERR_IF;
     }
 
-    if (p->len == p->tot_len) {
-        ptr = p->payload;
-    } else {
-        ptr = buffer;
-        pbuf_copy_partial(p, buffer, p->tot_len, 0);
+    while (n != arraysizeof(iov)) {
+        iov[n].iov_base = p->payload;
+        iov[n].iov_len = p->len;
+        n++;
+        if (p->len == p->tot_len)
+            break;
+        else
+            p = p->next;
     }
-
-    if ((nwrite = write(loop->tunfd, ptr, p->tot_len)) == -1) {
+    if ((nwrite = writev(loop->tunfd, iov, n)) == -1) {
         perror("write()");
         abort();
     }
-    if (nwrite != p->tot_len) {
+    if (nwrite != orig->tot_len) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: partial write\n"));
         return ERR_IF;
     }
