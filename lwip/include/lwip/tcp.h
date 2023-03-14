@@ -395,6 +395,7 @@ struct tcp_pcb {
   struct sk_ops *conn;
   char rcvq[TCP_WND];
   size_t nrcvq;
+  struct pbuf *sndq;
 #endif
 };
 

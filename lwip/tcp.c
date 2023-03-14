@@ -216,6 +216,8 @@ tcp_free(struct tcp_pcb *pcb)
 #if NSPROXY_MODIFIED
   if (pcb->conn)
     pcb->conn->destroy(pcb->conn);
+  if (pcb->sndq)
+    pbuf_free(pcb->sndq);
 #endif
   memp_free(MEMP_TCP_PCB, pcb);
 }

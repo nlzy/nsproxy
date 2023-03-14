@@ -139,7 +139,6 @@ void tcp_handle_event(void *userp, unsigned int event)
     struct tcp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
     ssize_t nread, nsent;
-    char buffer[TCP_SND_BUF];
 
     if (event & EPOLLERR) {
         conn->destroy(conn);
@@ -149,17 +148,30 @@ void tcp_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLIN) {
+        struct pbuf *p;
+
+        if ((p = pbuf_alloc(PBUF_RAW, TCP_SND_BUF, PBUF_RAM)) == NULL) {
+            fprintf(stderr, "Out of Memory.\n");
+            abort();
+        }
+
         if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN - 4) {
             nread = -1;
         } else {
-            nread = conn->recv(conn, buffer,
+            nread = conn->recv(conn, p->payload,
                                LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb)));
         }
         if (nread > 0) {
-            if (tcp_write(pcb, buffer, nread, TCP_WRITE_FLAG_COPY) != ERR_OK) {
+            pbuf_realloc(p, nread);
+            if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
                 fprintf(stderr, "Out of Memory.\n");
                 abort();
             }
+            if (pcb->sndq == NULL)
+                pcb->sndq = p;
+            else
+                pbuf_cat(pcb->sndq, p);
+            p = NULL;
             tcp_output(pcb);
         } else if (nread == 0) {
             tcp_shutdown(pcb, 0, 1);
@@ -169,6 +181,9 @@ void tcp_handle_event(void *userp, unsigned int event)
         } else {
             conn->evctl(conn, EPOLLIN, 0);
         }
+
+        if (p)
+            pbuf_free(p);
     }
 
     if (event & EPOLLOUT) {
@@ -198,6 +213,8 @@ void tcp_handle_event(void *userp, unsigned int event)
 static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
     struct sk_ops *conn = pcb->conn;
+
+    pcb->sndq = pbuf_free_header(pcb->sndq, len);
 
     if ((pcb->state == ESTABLISHED || pcb->state == CLOSE_WAIT) &&
         tcp_sndbuf(pcb) > TCP_SNDLOWAT)
