@@ -149,8 +149,9 @@ void tcp_handle_event(void *userp, unsigned int event)
 
     if (event & EPOLLIN) {
         struct pbuf *p;
+        size_t s = LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb));
 
-        if ((p = pbuf_alloc(PBUF_RAW, TCP_SND_BUF, PBUF_RAM)) == NULL) {
+        if ((p = pbuf_alloc(PBUF_RAW, s, PBUF_RAM)) == NULL) {
             fprintf(stderr, "Out of Memory.\n");
             abort();
         }
@@ -158,8 +159,7 @@ void tcp_handle_event(void *userp, unsigned int event)
         if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN - 4) {
             nread = -1;
         } else {
-            nread = conn->recv(conn, p->payload,
-                               LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb)));
+            nread = conn->recv(conn, p->payload, s);
         }
         if (nread > 0) {
             pbuf_realloc(p, nread);
@@ -264,7 +264,7 @@ void hook_on_tcp_new(struct tcp_pcb *pcb)
     } else if (loop_conf(loop)->proxytype == PROXY_HTTP) {
         http_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
     } else {
-        abort();
+        direct_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
     }
 
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);
