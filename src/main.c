@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <linux/if_tun.h>
@@ -292,8 +293,13 @@ static int child(int sk, char *cmd[])
     close(sk);
 
     if (execvp(cmd[0], cmd) == -1) {
-        perror("execvp()");
-        abort();
+        if (errno == ENOENT) {
+            fprintf(stderr, "nsproxy: command not found: %s\n", cmd[0]);
+            exit(EXIT_FAILURE);
+        } else {
+            perror("execvp()");
+            abort();
+        }
     }
 
     /* never reach */
@@ -315,6 +321,12 @@ int main(int argc, char *argv[])
     const char *dns = NULL;
     int ishttp = 0;
 
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
+        printf("usage: "
+               "nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [command]\n");
+        exit(EXIT_SUCCESS);
+    }
+
     while ((opt = getopt(argc, argv, "+Hs:p:d:")) != -1) {
         switch (opt) {
         case 'H':
@@ -330,7 +342,7 @@ int main(int argc, char *argv[])
             dns = optarg;
             break;
         default:
-            break;
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -345,8 +357,8 @@ int main(int argc, char *argv[])
 
     /* resolve domain to ip address */
     if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {
-        fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(err));
-        abort();
+        fprintf(stderr, "Unsupported proxy server address type.\n");
+        exit(EXIT_FAILURE);
     }
     if (result->ai_family == AF_INET) {
         inet_ntop(result->ai_family,
@@ -358,7 +370,7 @@ int main(int argc, char *argv[])
                   conf.proxysrv, sizeof(conf.proxysrv));
     } else {
         fprintf(stderr, "Unsupported proxy server address type.\n");
-        abort();
+        exit(EXIT_FAILURE);
     }
     strncpy(conf.proxyport, port, sizeof(conf.proxyport));
     conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
@@ -377,7 +389,7 @@ int main(int argc, char *argv[])
         strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
     } else {
         fprintf(stderr, "Unsupported dns address type.\n");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
