@@ -1,6 +1,7 @@
 #include "socks.h"
 
 #include <arpa/inet.h>
+#include <endian.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/tcp.h>

@@ -178,6 +178,10 @@ typedef uintptr_t mem_ptr_t;
 #define LWIP_NO_LIMITS_H 0
 #endif
 
+#if NSPROXY_MODIFIED
+#include <endian.h>
+#endif
+
 /* Include limits.h? */
 #if !LWIP_NO_LIMITS_H
 #include <limits.h>
