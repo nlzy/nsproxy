@@ -593,7 +593,7 @@ ssize_t socks_recv(struct sk_ops *handle, char *data, size_t size)
             h->isudp ? "UDP" : "TCP", h->addr, (unsigned int)h->port);
 #endif
 
-    if (h->isudp) {
+    if (nread > 0 && h->isudp) {
         struct socks5hdr hdr;
         struct socks5addr ad;
         ssize_t ret, offset = 0;
