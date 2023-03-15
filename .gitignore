@@ -1,4 +1,9 @@
 /build/
 /.vscode/
-*.pcap
+
 *.o
+*.out
+
+*.pcap
+perf.data
+perf.data.*
