@@ -169,7 +169,7 @@ static void send_fd(int sock, int fd)
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
     cmsg->cmsg_len = CMSG_LEN(sizeof(fd));
-    memcpy(&CMSG_DATA(cmsg), &fd, sizeof(fd));
+    memcpy(CMSG_DATA(cmsg), &fd, sizeof(fd));
 
     if (sendmsg(sock, &msg, 0) == -1) {
         perror("sendmsg()");
