@@ -86,8 +86,15 @@ static int bringup_tun(void)
     }
 
     if ((tunfd = open("/dev/net/tun", O_RDWR | O_CLOEXEC)) == -1) {
-        perror("open()");
-        abort();
+        if (errno == ENOENT) {
+            fprintf(stderr, "nsproxy: open \"/dev/net/tun\" failed.\n"
+                            "nsproxy: This kernel may not have TUN device "
+                            "support enabled.\n");
+            exit(EXIT_FAILURE);
+        } else {
+            perror("open()");
+            abort();
+        }
     }
 
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
@@ -198,14 +205,12 @@ static int recv_fd(int sock)
         abort();
     }
     if (nrecv == 0) {
-        fprintf(stderr, "the message is empty.\n");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     cmsg = CMSG_FIRSTHDR(&msg);
     if (cmsg == NULL || cmsg->cmsg_type != SCM_RIGHTS) {
-        fprintf(stderr, "the message does not contain fd.\n");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     memcpy(&ret, CMSG_DATA(cmsg), sizeof(ret));
