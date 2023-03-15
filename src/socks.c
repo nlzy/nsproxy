@@ -542,7 +542,7 @@ ssize_t socks_send(struct sk_ops *handle, const char *data, size_t size)
         nsent = send(h->sfd, buffer, offset, MSG_NOSIGNAL | MSG_MORE);
         if (nsent == -1) {
             if (is_ignored_skerr(errno)) {
-                nsent = -errno;
+                return -errno;
             } else {
                 perror("send()");
                 abort();
