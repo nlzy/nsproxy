@@ -315,9 +315,9 @@ int main(int argc, char *argv[])
     const char *dns = NULL;
     int ishttp = 0;
 
-    while ((opt = getopt(argc, argv, "+hs:p:d:")) != -1) {
+    while ((opt = getopt(argc, argv, "+Hs:p:d:")) != -1) {
         switch (opt) {
-        case 'h':
+        case 'H':
             ishttp = 1;
             break;
         case 's':

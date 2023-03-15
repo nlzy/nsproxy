@@ -22,30 +22,30 @@ It has the following features:
 USAGE
 ----------
 
-nsproxy [-h] [-s <server>] [-p <port>] [-d <dns>] [command]
+nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [command]
 
 Examples:
   # Use socks5 proxy
   nsproxy dig google.com A
 
   # Use http proxy
-  nsproxy -h curl https://api.ipify.org
+  nsproxy -H curl https://api.ipify.org
 
 Options:
-  -h
+  -H
     Use http proxy, not socks5.
     Note: UDP is **NOT** supported in http proxy. UDP packets will drop and got
           an ICMP port unreachable message.
 
-  -s server
+  -s <server>
     Proxy server address.
     Default vaule is "127.0.0.1"
 
-  -p port
+  -p <port>
     Proxy server port.
     Default value is "1080" for socks, "8080" for http
 
-  -d dns
+  -d <dns>
     DNS redirect, allow following options:
       -d off
         Disable DNS redirect, treat DNS requests as normal UDP packets.
