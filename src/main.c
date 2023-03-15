@@ -341,7 +341,7 @@ int main(int argc, char *argv[])
         port = ishttp ? "8080" : "1080";
 
     if (dns == NULL)
-        dns = "tcp://8.8.8.8";
+        dns = "tcp://1.1.1.1";
 
     /* resolve domain to ip address */
     if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {

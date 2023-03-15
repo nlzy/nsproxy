@@ -56,7 +56,7 @@ Options:
         Redirect DNS requests to specified TCP nameserver.
       -d udp://<nameserver_ipaddress>
         Redirect DNS requests to specified UDP nameserver.
-    Default value is "tcp://8.8.8.8"
+    Default value is "tcp://1.1.1.1"
 
 
 KNOWN ISSUE
