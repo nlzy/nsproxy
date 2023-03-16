@@ -346,8 +346,6 @@ int main(int argc, char *argv[])
 {
     int skpair[2];
     pid_t cid;
-    char **cmd;
-    char *defcmd[2];
     int opt, err;
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
@@ -441,14 +439,21 @@ int main(int argc, char *argv[])
         close(skpair[1]);
         return parent(skpair[0], &conf);
     } else {
+        char **cmd;
+        char *defcmd[2];
+        struct passwd *pwd;
+
         close(skpair[0]);
+
         if (optind >= argc) {
-            defcmd[0] = getpwuid(geteuid())->pw_shell;
+            pwd = getpwuid(geteuid());
+            defcmd[0] = pwd ? pwd->pw_shell : "/bin/sh";
             defcmd[1] = NULL;
             cmd = defcmd;
         } else {
             cmd = argv + optind;
         }
+
         return child(skpair[1], cmd);
     }
 }
