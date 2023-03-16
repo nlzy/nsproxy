@@ -20,40 +20,59 @@
 #include "loop.h"
 #include "lwip/opt.h"
 
-static void write_string(const char *fname, const char *str)
+static int write_string(const char *fname, const char *str)
 {
     int fd;
 
     if ((fd = open(fname, O_WRONLY | O_APPEND | O_CLOEXEC)) == -1) {
-        perror("open()");
-        abort();
+        return -errno;
     }
 
     if (write(fd, str, strlen(str)) == -1) {
-        perror("write()");
-        abort();
+        close(fd);
+        return -errno;
     }
 
     close(fd);
+    return 0;
 }
 
 static void map_uid(unsigned int from, unsigned int to)
 {
+    int ret;
     char str[32];
+
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
-    write_string("/proc/self/uid_map", str);
+    ret = write_string("/proc/self/uid_map", str);
+
+    if (ret < 0) {
+        fprintf(stderr, "nsproxy: map_uid() failed: %s\n", strerror(-ret));
+        abort();
+    }
 }
 
 static void map_gid(unsigned int from, unsigned int to)
 {
+    int ret;
     char str[32];
+
     snprintf(str, sizeof(str), "%u %u 1\n", from, to);
-    write_string("/proc/self/gid_map", str);
+    ret = write_string("/proc/self/gid_map", str);
+
+    if (ret < 0) {
+        fprintf(stderr, "nsproxy: map_gid() failed: %s\n", strerror(-ret));
+        abort();
+    }
 }
 
 static void set_setgroups(const char *action)
 {
-    write_string("/proc/self/setgroups", action);
+    int ret = write_string("/proc/self/setgroups", action);
+
+    if (ret < 0) {
+        fprintf(stderr, "nsproxy: set groups failed: %s\n", strerror(-ret));
+        abort();
+    }
 }
 
 static void bringup_loopback(void)
@@ -291,6 +310,7 @@ static int child(int sk, char *cmd[])
         map_gid(gid, gid);
     }
 
+    /* return value is not checked, failure is allowed. */
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
     bringup_loopback();
