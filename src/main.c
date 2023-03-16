@@ -8,7 +8,6 @@
 #include <net/if.h>
 #include <net/route.h>
 #include <netdb.h>
-#include <pwd.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -19,6 +18,34 @@
 #include "common.h"
 #include "loop.h"
 #include "lwip/opt.h"
+
+static void print_help(void)
+{
+    printf(
+        "usage: \n"
+        "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] <command>\n\n"
+        "  -H\n"
+        "    Use http proxy, not socks5.\n"
+        "\n"
+        "  -s <server>\n"
+        "    Proxy server address.\n"
+        "\n"
+        "  -p <port>\n"
+        "    Proxy server port.\n"
+        "\n"
+        "  -d <dns>\n"
+        "    DNS redirect, allow following options:\n"
+        "      -d off\n"
+        "        Disable DNS redirect, treat DNS requests as normal UDP "
+        "packets.\n"
+        "      -d direct\n"
+        "        Send DNS requests directly via local network (not proxied).\n"
+        "      -d tcp://<nameserver_ipaddress>\n"
+        "        Redirect DNS requests to specified TCP nameserver.\n"
+        "      -d udp://<nameserver_ipaddress>\n"
+        "        Redirect DNS requests to specified UDP nameserver.\n"
+        "\n");
+}
 
 static int write_string(const char *fname, const char *str)
 {
@@ -371,8 +398,7 @@ int main(int argc, char *argv[])
     int ishttp = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
-        printf("usage: "
-               "nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [command]\n");
+        print_help();
         exit(EXIT_SUCCESS);
     }
 
@@ -395,6 +421,11 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (optind >= argc) {
+        fprintf(stdout, "nsproxy: missing argument \"command\".\n");
+        exit(EXIT_FAILURE);
+    }
+
     if (serv == NULL)
         serv = "127.0.0.1";
 
@@ -406,7 +437,7 @@ int main(int argc, char *argv[])
 
     /* resolve domain to ip address */
     if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {
-        fprintf(stderr, "Unsupported proxy server address type.\n");
+        fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
     }
     if (result->ai_family == AF_INET) {
@@ -418,7 +449,7 @@ int main(int argc, char *argv[])
                   &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
                   conf.proxysrv, sizeof(conf.proxysrv));
     } else {
-        fprintf(stderr, "Unsupported proxy server address type.\n");
+        fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
     }
     strncpy(conf.proxyport, port, sizeof(conf.proxyport));
@@ -436,7 +467,7 @@ int main(int argc, char *argv[])
         conf.dnstype = DNS_REDIR_UDP;
         strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
     } else {
-        fprintf(stderr, "Unsupported dns address type.\n");
+        fprintf(stderr, "nsproxy: unsupported dns server address.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -454,21 +485,7 @@ int main(int argc, char *argv[])
         close(skpair[1]);
         return parent(skpair[0], &conf);
     } else {
-        char **cmd;
-        char *defcmd[2];
-        struct passwd *pwd;
-
         close(skpair[0]);
-
-        if (optind >= argc) {
-            pwd = getpwuid(geteuid());
-            defcmd[0] = pwd ? pwd->pw_shell : "/bin/sh";
-            defcmd[1] = NULL;
-            cmd = defcmd;
-        } else {
-            cmd = argv + optind;
-        }
-
-        return child(skpair[1], cmd);
+        return child(skpair[1], argv + optind);
     }
 }

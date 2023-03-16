@@ -22,7 +22,7 @@ It has the following features:
 USAGE
 ----------
 
-nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [command]
+nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] <command>
 
 Examples:
   # Use socks5 proxy
