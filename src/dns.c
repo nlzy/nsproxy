@@ -37,11 +37,8 @@ struct conn_tcpdns_worker {
     struct conn_tcpdns *master;
     struct sk_ops *proxy;
 
-    char sndbuf[2048];
-    ssize_t nsndbuf;
-
-    char rcvbuf[2048];
-    ssize_t nrcvbuf;
+    char buffer[4096];
+    ssize_t nbuffer;
 
     int done;
 };
@@ -87,18 +84,18 @@ void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLIN) {
-        nread = proxy->recv(proxy, worker->rcvbuf + worker->nrcvbuf,
-                            sizeof(worker->rcvbuf) - worker->nrcvbuf);
+        nread = proxy->recv(proxy, worker->buffer + worker->nbuffer,
+                            sizeof(worker->buffer) - worker->nbuffer);
         if (nread > 0) {
-            worker->nrcvbuf += nread;
+            worker->nbuffer += nread;
         } else {
             tcpdns_worker_destroy(worker);
             return;
         }
-        if (worker->nrcvbuf > 2) {
-            memcpy(&rsz, worker->rcvbuf, sizeof(rsz));
+        if (worker->nbuffer > 2) {
+            memcpy(&rsz, worker->buffer, sizeof(rsz));
             rsz = be16toh(rsz);
-            if (rsz + 2 == worker->nrcvbuf) {
+            if (rsz + 2 == worker->nbuffer) {
                 proxy->destroy(proxy);
                 worker->proxy = NULL;
                 worker->done = 1;
@@ -109,15 +106,15 @@ void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLOUT) {
-        nsent = proxy->send(proxy, worker->sndbuf, worker->nsndbuf);
+        nsent = proxy->send(proxy, worker->buffer, worker->nbuffer);
         if (nsent > 0) {
-            worker->nsndbuf -= nsent;
-            memmove(worker->sndbuf, worker->sndbuf + nsent, worker->nsndbuf);
+            worker->nbuffer -= nsent;
+            memmove(worker->buffer, worker->buffer + nsent, worker->nbuffer);
         } else {
             tcpdns_worker_destroy(worker);
             return;
         }
-        if (worker->nsndbuf == 0) {
+        if (worker->nbuffer == 0) {
             proxy->evctl(proxy, EPOLLIN, 1);
             proxy->evctl(proxy, EPOLLOUT, 0);
         }
@@ -167,7 +164,7 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     if (master->nworker == arraysizeof(master->workers))
         return -EAGAIN; /* no available worker */
 
-    if (size + 2 > sizeof(worker->sndbuf))
+    if (size + 2 > sizeof(worker->buffer))
         return -EAGAIN; /* query too large */
 
     /* init worker */
@@ -177,9 +174,9 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     }
     worker->master = master;
     sizebe = htobe16(size);
-    memcpy(worker->sndbuf, &sizebe, 2);
-    memcpy(worker->sndbuf + 2, data, size);
-    worker->nsndbuf = size + 2;
+    memcpy(worker->buffer, &sizebe, 2);
+    memcpy(worker->buffer + 2, data, size);
+    worker->nbuffer = size + 2;
 
     if (loop_conf(master->loop)->proxytype == PROXY_SOCKS5)
         worker->proxy =
@@ -220,8 +217,8 @@ ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
         return -EAGAIN; /* no worker done */
 
     /* copy answer */
-    n = worker->nrcvbuf - 2;
-    memcpy(data, worker->rcvbuf + 2, n);
+    n = worker->nbuffer - 2;
+    memcpy(data, worker->buffer + 2, n);
 
     /* free */
     tcpdns_worker_destroy(worker);

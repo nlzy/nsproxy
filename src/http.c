@@ -25,11 +25,8 @@ struct conn_http {
 
     /* for handshake only */
     /* TODO: free these buffer after handshake finished */
-    char sndbuf[512];
-    ssize_t nsndbuf;
-
-    char rcvbuf[512];
-    ssize_t nrcvbuf;
+    char buffer[512];
+    ssize_t nbuffer;
 };
 
 /* epoll event callback used after handshake
@@ -59,8 +56,8 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     /* use MSG_PEEK here, if some application layer data has been returned,
        we can carefuly not to touch them
     */
-    nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf,
-                 sizeof(self->rcvbuf) - self->nrcvbuf - 1, MSG_PEEK);
+    nread = recv(self->sfd, self->buffer + self->nbuffer,
+                 sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
     if (nread == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("recv()");
@@ -69,20 +66,20 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
-    p = strstr(self->rcvbuf, "\r\n\r\n");
-    s = p ? (p + strlen("\r\n\r\n") - (self->rcvbuf + self->nrcvbuf)) : nread;
+    p = strstr(self->buffer, "\r\n\r\n");
+    s = p ? (p + strlen("\r\n\r\n") - (self->buffer + self->nbuffer)) : nread;
 
     /* discard http response part in socket buffer */
-    if ((nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf, s, 0)) != s) {
+    if ((nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0)) != s) {
         fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
         abort();
     }
-    self->nrcvbuf += nread;
+    self->nbuffer += nread;
 
     /* handshake not finished */
     if (!p) {
         /* failed, handshake not finished but connection lost or buffer full */
-        if (s == 0 || self->nrcvbuf == sizeof(self->rcvbuf))
+        if (s == 0 || self->nbuffer == sizeof(self->buffer))
             self->userev(self->userp, EPOLLERR);
 
         /* if not failed, wait for rest handshake message */
@@ -90,7 +87,7 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     }
 
     /* check response */
-    if (sscanf(self->rcvbuf, "HTTP/1.%c %d", &vermin, &code) != 2) {
+    if (sscanf(self->buffer, "HTTP/1.%c %d", &vermin, &code) != 2) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -122,13 +119,13 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     }
 
     /* it's first called to this function, assembly request */
-    if (!self->nsndbuf) {
-        self->nsndbuf = snprintf(self->sndbuf, sizeof(self->sndbuf),
+    if (!self->nbuffer) {
+        self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
                                  "CONNECT %s:%u HTTP/1.1\r\n\r\n", self->addr,
                                  (unsigned int)self->port);
     }
 
-    if ((nsent = send(self->sfd, self->sndbuf, self->nsndbuf, MSG_NOSIGNAL)) ==
+    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
         -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
@@ -136,11 +133,11 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
         }
         return;
     }
-    self->nsndbuf -= nsent;
+    self->nbuffer -= nsent;
 
     /* partial write, wait next time to write rest */
-    if (self->nsndbuf != 0) {
-        memmove(self->sndbuf, self->sndbuf + nsent, self->nsndbuf);
+    if (self->nbuffer != 0) {
+        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
         return;
     }
 

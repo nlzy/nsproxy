@@ -28,11 +28,8 @@ struct conn_socks {
 
     /* for handshake only */
     /* TODO: free these buffer after handshake finished */
-    char sndbuf[512];
-    size_t nsndbuf;
-
-    char rcvbuf[512];
-    size_t nrcvbuf;
+    char buffer[512];
+    size_t nbuffer;
 };
 
 struct socks5hdr {
@@ -226,8 +223,8 @@ void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
     /* use MSG_PEEK here, if some application layer data has been returned,
        we can carefuly not to touch them
     */
-    if ((nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf,
-                      sizeof(self->rcvbuf) - self->nrcvbuf - 1, MSG_PEEK)) ==
+    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
+                      sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK)) ==
         -1) {
         if (!is_ignored_skerr(errno)) {
             perror("recv()");
@@ -245,33 +242,33 @@ void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
         s = nread;
         pass = 0;
 
-        ret = socks5_hdr_get(&hdr, self->rcvbuf + offset,
-                             self->nrcvbuf + nread - offset);
+        ret = socks5_hdr_get(&hdr, self->buffer + offset,
+                             self->nbuffer + nread - offset);
         if (ret == -1)
             break;
         offset += ret;
 
-        ret = socks5_addr_get(&ad, self->rcvbuf + offset,
-                              self->nrcvbuf + nread - offset);
+        ret = socks5_addr_get(&ad, self->buffer + offset,
+                              self->nbuffer + nread - offset);
         if (ret == -1)
             break;
         offset += ret;
 
-        s = offset - self->nrcvbuf;
+        s = offset - self->nbuffer;
         pass = 1;
     } while (0);
 
     /* discard socks handshake reply part in socket buffer */
-    if ((nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf, s, 0)) != s) {
+    if ((nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0)) != s) {
         fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
         abort();
     }
-    self->nrcvbuf += nread;
+    self->nbuffer += nread;
 
     /* handshake not finished */
     if (!pass) {
         /* failed, handshake not finished but connection lost or buffer full */
-        if (s == 0 || self->nrcvbuf == sizeof(self->rcvbuf))
+        if (s == 0 || self->nbuffer == sizeof(self->buffer))
             self->userev(self->userp, EPOLLERR);
 
         /* if not failed, wait for rest handshake message */
@@ -307,7 +304,7 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
     }
 
     /* it's first called to this function, fill buffer */
-    if (self->nsndbuf == 0) {
+    if (self->nbuffer == 0) {
         struct socks5hdr hdr = { .ver = 5, .cmd = SOCKS5_CMD_CONNECT };
         struct socks5addr ad;
         ssize_t ret;
@@ -315,24 +312,24 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
         strncpy(ad.addr, self->addr, sizeof(ad.addr) - 1);
         ad.port = self->port;
 
-        ret = socks5_hdr_put(self->sndbuf + self->nsndbuf,
-                             sizeof(self->sndbuf) - self->nsndbuf, &hdr);
+        ret = socks5_hdr_put(self->buffer + self->nbuffer,
+                             sizeof(self->buffer) - self->nbuffer, &hdr);
         if (ret == -1) {
             self->userev(self->userp, EPOLLERR);
             return;
         }
-        self->nsndbuf += ret;
+        self->nbuffer += ret;
 
-        ret = socks5_addr_put(self->sndbuf + self->nsndbuf,
-                              sizeof(self->sndbuf) - self->nsndbuf, &ad);
+        ret = socks5_addr_put(self->buffer + self->nbuffer,
+                              sizeof(self->buffer) - self->nbuffer, &ad);
         if (ret == -1) {
             self->userev(self->userp, EPOLLERR);
             return;
         }
-        self->nsndbuf += ret;
+        self->nbuffer += ret;
     }
 
-    if ((nsent = send(self->sfd, self->sndbuf, self->nsndbuf, MSG_NOSIGNAL)) ==
+    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
         -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
@@ -340,11 +337,11 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
         }
         return; /* will handle in error handle */
     }
-    self->nsndbuf -= nsent;
+    self->nbuffer -= nsent;
 
     /* partial write, wait next time to write rest */
-    if (self->nsndbuf != 0) {
-        memmove(self->sndbuf, self->sndbuf + nsent, self->nsndbuf);
+    if (self->nbuffer != 0) {
+        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
         return;
     }
 
@@ -371,35 +368,35 @@ void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
-    if ((nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf,
-                      sizeof(self->rcvbuf) - self->nrcvbuf, 0)) == -1) {
+    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
+                      sizeof(self->buffer) - self->nbuffer, 0)) == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("recv()");
             abort();
         }
         return;
     }
-    self->nrcvbuf += nread;
+    self->nbuffer += nread;
 
-    /* if nrcvbuf == 0, handshake failed because EOF
-       if nrcvbuf > 2, hanshake failed because server didn't follow RFC1928
+    /* if nbuffer == 0, handshake failed because EOF
+       if nbuffer > 2, hanshake failed because server didn't follow RFC1928
     */
-    if (self->nrcvbuf == 0 || self->nrcvbuf > 2) {
+    if (self->nbuffer == 0 || self->nbuffer > 2) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
 
     /* wait more data */
-    if (self->nrcvbuf != 2)
+    if (self->nbuffer != 2)
         return;
 
-    if (self->rcvbuf[0] != 5 || self->rcvbuf[1] != 0) {
+    if (self->buffer[0] != 5 || self->buffer[1] != 0) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
 
     /* good, server replied correctly */
-    self->nrcvbuf = 0;
+    self->nbuffer = 0;
     self->io_poller_ev.events = EPOLLOUT;
     self->io_poller.on_epoll_event = &socks_handshake_phase_3;
     if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
@@ -423,18 +420,18 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     }
 
     /* it's first called to this function, assembly request */
-    if (self->nsndbuf == 0) {
-        if (sizeof(self->sndbuf) < 3) {
+    if (self->nbuffer == 0) {
+        if (sizeof(self->buffer) < 3) {
             self->userev(self->userp, EPOLLERR);
             return;
         }
         /* current only support no auth */
-        self->sndbuf[self->nsndbuf++] = 5; /* ver */
-        self->sndbuf[self->nsndbuf++] = 1; /* num */
-        self->sndbuf[self->nsndbuf++] = 0; /* no auth */
+        self->buffer[self->nbuffer++] = 5; /* ver */
+        self->buffer[self->nbuffer++] = 1; /* num */
+        self->buffer[self->nbuffer++] = 0; /* no auth */
     }
 
-    if ((nsent = send(self->sfd, self->sndbuf, self->nsndbuf, MSG_NOSIGNAL)) ==
+    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
         -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
@@ -442,11 +439,11 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
         }
         return;
     }
-    self->nsndbuf -= nsent;
+    self->nbuffer -= nsent;
 
     /* partial write, wait next time to write rest */
-    if (self->nsndbuf != 0) {
-        memmove(self->sndbuf, self->sndbuf + nsent, self->nsndbuf);
+    if (self->nbuffer != 0) {
+        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
         return;
     }
 
