@@ -214,8 +214,8 @@ tcp_free(struct tcp_pcb *pcb)
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
 #if NSPROXY_MODIFIED
-  if (pcb->conn)
-    pcb->conn->destroy(pcb->conn);
+  if (pcb->proxy)
+    pcb->proxy->destroy(pcb->proxy);
   if (pcb->sndq)
     pbuf_free(pcb->sndq);
   if (pcb->rcvq)

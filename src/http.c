@@ -16,13 +16,15 @@ struct conn_http {
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
-    char *addr;
+    char *addr; /* for proixed connection, not proxy server */
     uint16_t port;
 
-    int sfd;
+    int sfd; /* socket fd to proxy server */
     struct ep_poller io_poller;
     struct epoll_event io_poller_ev;
 
+    /* for handshake only */
+    /* TODO: free these buffer after handshake finished */
     char sndbuf[512];
     ssize_t nsndbuf;
 
@@ -30,28 +32,36 @@ struct conn_http {
     ssize_t nrcvbuf;
 };
 
+/* epoll event callback used after handshake
+   we don't care events after handshaked, just forward event to user */
 void http_io_event(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *h = container_of(poller, struct conn_http, io_poller);
-    h->userev(h->userp, event);
+    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
+    self->userev(self->userp, event);
 }
 
+/* epoll event callback
+   used of receiving http response */
 void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *h = container_of(poller, struct conn_http, io_poller);
+    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
     ssize_t nread;
-    char *p;
-    ssize_t s;
+    char *p; /* pointer to end of HTTP response, NULL if response not ended  */
+    ssize_t s; /* how many bytes belongs HTTP response in this read */
     char vermin;
     int code;
 
     if (event & EPOLLERR) {
-        h->userev(h->userp, EPOLLERR);
+        self->userev(self->userp, EPOLLERR);
         return;
     }
 
-    if ((nread = recv(h->sfd, h->rcvbuf + h->nrcvbuf,
-                      sizeof(h->rcvbuf) - h->nrcvbuf - 1, MSG_PEEK)) == -1) {
+    /* use MSG_PEEK here, if some application layer data has been returned,
+       we can carefuly not to touch them
+    */
+    nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf,
+                 sizeof(self->rcvbuf) - self->nrcvbuf - 1, MSG_PEEK);
+    if (nread == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("recv()");
             abort();
@@ -59,106 +69,120 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
-    p = strstr(h->rcvbuf, "\r\n\r\n");
-    s = p ? (p + strlen("\r\n\r\n") - (h->rcvbuf + h->nrcvbuf)) : nread;
+    p = strstr(self->rcvbuf, "\r\n\r\n");
+    s = p ? (p + strlen("\r\n\r\n") - (self->rcvbuf + self->nrcvbuf)) : nread;
 
-    if ((nread = recv(h->sfd, h->rcvbuf + h->nrcvbuf, s, 0)) != s) {
-        if (nread == -1 && !is_ignored_skerr(errno)) {
-            perror("recv()");
-            abort();
-        }
-        h->userev(h->userp, EPOLLERR);
-        return;
+    /* discard http response part in socket buffer */
+    if ((nread = recv(self->sfd, self->rcvbuf + self->nrcvbuf, s, 0)) != s) {
+        fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
+        abort();
     }
-    h->nrcvbuf += nread;
+    self->nrcvbuf += nread;
 
+    /* handshake not finished */
     if (!p) {
-        if (h->nrcvbuf == sizeof(h->rcvbuf) || nread == 0)
-            h->userev(h->userp, EPOLLERR);
+        /* failed, handshake not finished but connection lost or buffer full */
+        if (s == 0 || self->nrcvbuf == sizeof(self->rcvbuf))
+            self->userev(self->userp, EPOLLERR);
+
+        /* if not failed, wait for rest handshake message */
         return;
     }
 
-    if (sscanf(h->rcvbuf, "HTTP/1.%c %d", &vermin, &code) != 2) {
-        h->userev(h->userp, EPOLLERR);
+    /* check response */
+    if (sscanf(self->rcvbuf, "HTTP/1.%c %d", &vermin, &code) != 2) {
+        self->userev(self->userp, EPOLLERR);
         return;
     }
     if (code != 200) {
-        h->userev(h->userp, EPOLLERR);
+        self->userev(self->userp, EPOLLERR);
         return;
     }
 
-    h->io_poller_ev.events = EPOLLOUT | EPOLLIN;
-    h->io_poller.on_epoll_event = &http_io_event;
-    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
-                  &h->io_poller_ev) == -1) {
+    /* good, handshake finish, listen and forward epoll event for user */
+    self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
+    self->io_poller.on_epoll_event = &http_io_event;
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
+                  &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
 }
 
+/* epoll event callback
+   used of sending http request */
 void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *h = container_of(poller, struct conn_http, io_poller);
+    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
     ssize_t nsent;
 
     if (event & EPOLLERR) {
-        h->userev(h->userp, EPOLLERR);
+        self->userev(self->userp, EPOLLERR);
         return;
     }
 
-    if (!h->nsndbuf) {
-        h->nsndbuf = snprintf(h->sndbuf, sizeof(h->sndbuf),
-                              "CONNECT %s:%u HTTP/1.1\r\n\r\n", h->addr,
-                              (unsigned int)h->port);
+    /* it's first called to this function, assembly request */
+    if (!self->nsndbuf) {
+        self->nsndbuf = snprintf(self->sndbuf, sizeof(self->sndbuf),
+                                 "CONNECT %s:%u HTTP/1.1\r\n\r\n", self->addr,
+                                 (unsigned int)self->port);
     }
 
-    if ((nsent = send(h->sfd, h->sndbuf, h->nsndbuf, MSG_NOSIGNAL)) == -1) {
+    if ((nsent = send(self->sfd, self->sndbuf, self->nsndbuf, MSG_NOSIGNAL)) ==
+        -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
             abort();
         }
         return;
     }
-    h->nsndbuf -= nsent;
+    self->nsndbuf -= nsent;
 
-    if (h->nsndbuf != 0) {
-        memmove(h->sndbuf, h->sndbuf + nsent, h->nsndbuf);
+    /* partial write, wait next time to write rest */
+    if (self->nsndbuf != 0) {
+        memmove(self->sndbuf, self->sndbuf + nsent, self->nsndbuf);
         return;
     }
 
-    h->io_poller_ev.events = EPOLLIN;
-    h->io_poller.on_epoll_event = &http_handshake_phase_2;
-    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
-                  &h->io_poller_ev) == -1) {
+    /* good, http request has been send */
+    self->io_poller_ev.events = EPOLLIN;
+    self->io_poller.on_epoll_event = &http_handshake_phase_2;
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
+                  &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
 }
 
-int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
+/* impl for struct sk_ops :: connect
+   the argument addr and port is proxied connection, not proxy server
+*/
+int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
-    struct conn_http *h = (struct conn_http *)handle;
-    struct loopconf *conf = loop_conf(h->loop);
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct loopconf *conf = loop_conf(self->loop);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     int const enable = 1;
 
+    /* connect to proxy server,
+       save arguments addr and port, there are required in handshake */
     getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
 
-    if ((h->sfd = socket(result->ai_family,
-                         SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
+    if ((self->sfd = socket(result->ai_family,
+                            SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
         -1) {
         perror("socket()");
         abort();
     }
 
-    if (setsockopt(h->sfd, IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(enable)) ==
-        -1) {
+    if (setsockopt(self->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
+                   sizeof(enable)) == -1) {
         perror("setsockopt()");
         abort();
     }
 
-    if (connect(h->sfd, result->ai_addr, result->ai_addrlen) == -1) {
+    if (connect(self->sfd, result->ai_addr, result->ai_addrlen) == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("connect()");
             abort();
@@ -167,30 +191,32 @@ int http_connect(struct sk_ops *handle, const char *addr, uint16_t port)
 
     freeaddrinfo(result);
 
-    h->io_poller_ev.events = EPOLLOUT;
-    h->io_poller.on_epoll_event = &http_handshake_phase_1;
-    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_ADD, h->sfd,
-                  &h->io_poller_ev) == -1) {
+    /* good, start handshake */
+    self->io_poller_ev.events = EPOLLOUT;
+    self->io_poller.on_epoll_event = &http_handshake_phase_1;
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_ADD, self->sfd,
+                  &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
     }
 
-    h->addr = strdup(addr);
-    h->port = port;
+    self->addr = strdup(addr);
+    self->port = port;
 
     return 0;
 }
 
-int http_shutdown(struct sk_ops *handle, int how)
+/* impl for struct sk_ops :: shutdown */
+int http_shutdown(struct sk_ops *conn, int how)
 {
-    struct conn_http *h = (struct conn_http *)handle;
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
     int ret;
 
-    if (h->io_poller.on_epoll_event != &http_io_event) {
+    if (self->io_poller.on_epoll_event != &http_io_event) {
         return -ENOTCONN;
     }
 
-    if ((ret = shutdown(h->sfd, how)) == -1) {
+    if ((ret = shutdown(self->sfd, how)) == -1) {
         if (is_ignored_skerr(errno)) {
             return -errno;
         } else {
@@ -202,40 +228,43 @@ int http_shutdown(struct sk_ops *handle, int how)
     return ret;
 }
 
-void http_evctl(struct sk_ops *handle, unsigned int event, int enable)
+/* impl for struct sk_ops :: evctl */
+void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
-    struct conn_http *h = (struct conn_http *)handle;
-    unsigned int old = h->io_poller_ev.events;
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    unsigned int old = self->io_poller_ev.events;
 
-    if (h->io_poller.on_epoll_event != &http_io_event) {
+    if (self->io_poller.on_epoll_event != &http_io_event) {
         return;
     }
 
     if (enable) {
-        h->io_poller_ev.events |= event;
+        self->io_poller_ev.events |= event;
     } else {
-        h->io_poller_ev.events &= ~event;
+        self->io_poller_ev.events &= ~event;
     }
 
-    if (old != h->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_MOD, h->sfd,
-                      &h->io_poller_ev) == -1) {
+    if (old != self->io_poller_ev.events) {
+        if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
+                      &self->io_poller_ev) == -1) {
             perror("epoll_ctl()");
             abort();
         }
     }
 }
 
-ssize_t http_send(struct sk_ops *handle, const char *data, size_t size)
+/* impl for struct sk_ops :: send */
+ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
 {
-    struct conn_http *h = (struct conn_http *)handle;
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
     ssize_t nsent;
 
-    if (h->io_poller.on_epoll_event != &http_io_event) {
+    /* handshake is not finished */
+    if (self->io_poller.on_epoll_event != &http_io_event) {
         return -EAGAIN;
     }
 
-    nsent = send(h->sfd, data, size, MSG_NOSIGNAL);
+    nsent = send(self->sfd, data, size, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (is_ignored_skerr(errno)) {
             nsent = -errno;
@@ -246,23 +275,25 @@ ssize_t http_send(struct sk_ops *handle, const char *data, size_t size)
     }
 
 #ifndef NDEBUG
-    fprintf(stderr, "--- http %zd bytes. tcp %s:%u\n", nsent, h->addr,
-            (unsigned int)h->port);
+    fprintf(stderr, "--- http %zd bytes. tcp %s:%u\n", nsent, self->addr,
+            (unsigned int)self->port);
 #endif
 
     return nsent;
 }
 
-ssize_t http_recv(struct sk_ops *handle, char *data, size_t size)
+/* impl for struct sk_ops :: recv */
+ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
 {
-    struct conn_http *h = (struct conn_http *)handle;
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
     ssize_t nread;
 
-    if (h->io_poller.on_epoll_event != &http_io_event) {
+    /* handshake is not finished */
+    if (self->io_poller.on_epoll_event != &http_io_event) {
         return -EAGAIN;
     }
 
-    nread = recv(h->sfd, data, size, 0);
+    nread = recv(self->sfd, data, size, 0);
     if (nread == -1) {
         if (is_ignored_skerr(errno)) {
             nread = -errno;
@@ -273,62 +304,65 @@ ssize_t http_recv(struct sk_ops *handle, char *data, size_t size)
     }
 
 #ifndef NDEBUG
-    fprintf(stderr, "+++ http %zd bytes. tcp %s:%u\n", nread, h->addr,
-            (unsigned int)h->port);
+    fprintf(stderr, "+++ http %zd bytes. tcp %s:%u\n", nread, self->addr,
+            (unsigned int)self->port);
 #endif
 
     return nread;
 }
 
-void http_destroy(struct sk_ops *handle)
+/* impl for struct sk_ops :: destory */
+void http_destroy(struct sk_ops *conn)
 {
-    struct conn_http *h = (struct conn_http *)handle;
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
 
-    if (epoll_ctl(loop_epfd(h->loop), EPOLL_CTL_DEL, h->sfd, NULL) == -1) {
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_DEL, self->sfd, NULL) ==
+        -1) {
         perror("epoll_ctl()");
         abort();
     }
 
-    if (shutdown(h->sfd, SHUT_RDWR) == -1) {
+    if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("shutdown()");
             abort();
         }
     }
 
-    if (close(h->sfd) == -1) {
+    if (close(self->sfd) == -1) {
         perror("close()");
         abort();
     }
 
-    free(h->addr);
+    free(self->addr);
 
-    free(h);
+    free(self);
 }
 
-int http_tcp_create(struct sk_ops **handle, struct loopctx *loop,
-                    void (*userev)(void *userp, unsigned int event),
-                    void *userp)
+/* create a tcp connection
+   this connection is proxied via http proxy server */
+struct sk_ops *http_tcp_create(struct loopctx *loop,
+                               void (*userev)(void *userp, unsigned int event),
+                               void *userp)
 {
-    struct conn_http *h;
+    struct conn_http *self;
 
-    if ((h = calloc(1, sizeof(struct conn_http))) == NULL) {
+    if ((self = calloc(1, sizeof(struct conn_http))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
-    h->ops.connect = &http_connect;
-    h->ops.shutdown = &http_shutdown;
-    h->ops.evctl = &http_evctl;
-    h->ops.send = &http_send;
-    h->ops.recv = &http_recv;
-    h->ops.destroy = &http_destroy;
+    self->ops.connect = &http_connect;
+    self->ops.shutdown = &http_shutdown;
+    self->ops.evctl = &http_evctl;
+    self->ops.send = &http_send;
+    self->ops.recv = &http_recv;
+    self->ops.destroy = &http_destroy;
 
-    h->loop = loop;
-    h->userev = userev;
-    h->userp = userp;
-    h->io_poller_ev.data.ptr = &h->io_poller;
+    self->loop = loop;
+    self->userev = userev;
+    self->userp = userp;
+    self->io_poller_ev.data.ptr = &self->io_poller;
 
-    *handle = &h->ops;
-    return 0;
+    return &self->ops;
 }

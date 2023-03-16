@@ -181,6 +181,8 @@ static int bringup_tun(void)
     return tunfd;
 }
 
+/* send a file descriptor to sock
+   must succeed, otherwise terminate this process */
 static void send_fd(int sock, int fd)
 {
     char dummy = '\0';
@@ -205,6 +207,8 @@ static void send_fd(int sock, int fd)
     }
 }
 
+/* receive a file descriptor from sock, return the file descriptor
+   must succeed, otherwise terminate this process */
 static int recv_fd(int sock)
 {
     int ret;
@@ -237,6 +241,11 @@ static int recv_fd(int sock)
     return ret;
 }
 
+/* tasks in parent process is:
+   1. Receive TUN file descriptor from child process.
+   2. Start event loop, the event loop will handle IP packets from TUN
+      device and forward traffic to proxy server.
+*/
 static int parent(int sk, struct loopconf *conf)
 {
     int tunfd;
@@ -265,7 +274,7 @@ static int parent(int sk, struct loopconf *conf)
         abort();
     }
 
-    /* write a byte after setting up sigmask, indicate set up completely */
+    /* write a byte after sigmask is set, indicate set up completely */
     if (write(sk, &dummy, sizeof(dummy)) == -1) {
         perror("write()");
         abort();
@@ -277,6 +286,12 @@ static int parent(int sk, struct loopconf *conf)
     return loop_run(loop);
 }
 
+/* tasks in child process is:
+   1. Enter a new net_namespace.
+   2. Create a TUN device and configure networking.
+   3. Send TUN file descriptor to parent process.
+   4. exec(2) target application.
+*/
 static int child(int sk, char *cmd[])
 {
     int tunfd;
@@ -319,8 +334,8 @@ static int child(int sk, char *cmd[])
 
     send_fd(sk, tunfd);
 
-    /* wait for parent to set his sigmask,
-       prevent child process terminate befor parent sets sigmask  */
+    /* wait for parent process to set sigmask,
+       prevent child process being terminated before sigmask is set  */
     if (read(sk, &dummy, sizeof(dummy)) == -1) {
         perror("read()");
         abort();

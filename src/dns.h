@@ -2,11 +2,6 @@
 #include "common.h"
 #include "loop.h"
 
-int fakedns_create(struct sk_ops **handle, struct loopctx *loop,
-                   void (*userev)(void *userp, unsigned int event),
-                   void *userp);
-
-int tcpdns_create(struct sk_ops **handle, struct loopctx *loop,
-                  void (*userev)(void *userp, unsigned int event), void *userp);
-
-void dns_tmr(void);
+struct sk_ops *tcpdns_create(struct loopctx *loop,
+                             void (*userev)(void *userp, unsigned int event),
+                             void *userp);

@@ -1229,8 +1229,8 @@ udp_remove(struct udp_pcb *pcb)
     }
   }
 #if NSPROXY_MODIFIED
-  if (pcb->conn) {
-    pcb->conn->destroy(pcb->conn);
+  if (pcb->proxy) {
+    pcb->proxy->destroy(pcb->proxy);
   }
 #endif
   memp_free(MEMP_UDP_PCB, pcb);

@@ -48,6 +48,7 @@ static void tun_input(struct netif *tunif)
         abort();
     }
 
+    /* shirk, set p->tot_len = nread */
     pbuf_realloc(p, nread);
 
     if (tunif->input(p, tunif) != ERR_OK) {
@@ -73,6 +74,7 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
         iov[n].iov_base = p->payload;
         iov[n].iov_len = p->len;
         n++;
+        /* lwip used below as loop end condiction, not p->next == NULL */
         if (p->len == p->tot_len)
             break;
         else
@@ -152,6 +154,7 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
         abort();
     }
 
+    /* lwip required call to some functions periodically every 250ms */
     if ((p->timerfd = timerfd_create(CLOCK_MONOTONIC,
                                      TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
         perror("timerfd_create()");
