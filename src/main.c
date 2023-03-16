@@ -8,6 +8,7 @@
 #include <net/if.h>
 #include <net/route.h>
 #include <netdb.h>
+#include <pwd.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -413,7 +414,7 @@ int main(int argc, char *argv[])
     } else {
         close(skpair[0]);
         if (optind >= argc) {
-            defcmd[0] = strdup("/bin/bash");
+            defcmd[0] = getpwuid(geteuid())->pw_shell;
             defcmd[1] = NULL;
             cmd = defcmd;
         } else {
