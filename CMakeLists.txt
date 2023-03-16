@@ -31,7 +31,7 @@ add_executable(nsproxy
     lwip/tcp_out.c
     lwip/udp.c
     src/main.c
-    src/hook.c
+    src/core.c
     src/loop.c
     src/direct.c
     src/socks.c

@@ -60,7 +60,7 @@
 #endif /* LWIP_ND6_TCP_REACHABILITY_HINTS */
 
 #if NSPROXY_MODIFIED
-#include "hook.h"
+#include "core.h"
 #endif
 
 #include <string.h>
@@ -112,7 +112,7 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #if NSPROXY_MODIFIED
 err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-  hook_on_tcp_new(newpcb);
+  core_tcp_new(newpcb);
   return 0;
 }
 static struct tcp_pcb_listen nsproxy_fake_lpcb = { .accept = &on_tcp_accept };

@@ -1,4 +1,4 @@
-#include "hook.h"
+#include "core.h"
 
 #include <errno.h>
 #include <sys/epoll.h>
@@ -16,7 +16,7 @@
 
 /* UDP */
 
-void udp_handle_event(void *userp, unsigned int event)
+static void udp_conn_io_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
@@ -71,8 +71,8 @@ void udp_handle_event(void *userp, unsigned int event)
     }
 }
 
-static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
-                        const ip_addr_t *addr, u16_t port)
+static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                              const ip_addr_t *addr, u16_t port)
 {
     struct sk_ops *conn = pcb->conn;
 
@@ -98,26 +98,26 @@ static void udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         pcb->nrcvq++;
     }
 
-    udp_handle_event(pcb, EPOLLOUT);
+    udp_conn_io_event(pcb, EPOLLOUT);
 }
 
-void hook_on_udp_new(struct udp_pcb *pcb)
+void core_udp_new(struct udp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
     struct loopconf *conf = loop_conf(loop);
     char *addr = ipaddr_ntoa(&pcb->local_ip);
     uint16_t port = pcb->local_port;
 
-    pcb->recv = &udp_recv_cb;
+    pcb->recv = &udp_lwip_received;
 
     if (port == 53 && conf->dnstype != DNS_REDIR_OFF) {
         if (conf->dnstype == DNS_REDIR_DIRECT) {
-            direct_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            direct_udp_create(&pcb->conn, loop, &udp_conn_io_event, pcb);
             pcb->conn->connect(pcb->conn, addr, port);
             return;
         }
         if (conf->dnstype == DNS_REDIR_TCP) {
-            tcpdns_create(&pcb->conn, loop, &udp_handle_event, pcb);
+            tcpdns_create(&pcb->conn, loop, &udp_conn_io_event, pcb);
             pcb->conn->connect(pcb->conn, conf->dnssrv, port);
             return;
         }
@@ -127,14 +127,14 @@ void hook_on_udp_new(struct udp_pcb *pcb)
     }
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        socks_udp_create(&pcb->conn, loop, &udp_handle_event, pcb);
+        socks_udp_create(&pcb->conn, loop, &udp_conn_io_event, pcb);
         pcb->conn->connect(pcb->conn, addr, port);
     }
 }
 
 /* TCP */
 
-void tcp_handle_event(void *userp, unsigned int event)
+static void tcp_conn_io_event(void *userp, unsigned int event)
 {
     struct tcp_pcb *pcb = userp;
     struct sk_ops *conn = pcb->conn;
@@ -209,7 +209,7 @@ void tcp_handle_event(void *userp, unsigned int event)
     }
 }
 
-static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
+static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
     struct sk_ops *conn = pcb->conn;
 
@@ -222,8 +222,8 @@ static err_t tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len)
     return ERR_OK;
 }
 
-static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
-                         err_t err)
+static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
+                               err_t err)
 {
     struct sk_ops *conn = pcb->conn;
 
@@ -246,25 +246,25 @@ static err_t tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
     else
         pcb->rcvq = p;
 
-    tcp_handle_event(pcb, EPOLLOUT);
+    tcp_conn_io_event(pcb, EPOLLOUT);
     return ERR_OK;
 }
 
-void hook_on_tcp_new(struct tcp_pcb *pcb)
+void core_tcp_new(struct tcp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
 
     tcp_nagle_disable(pcb);
 
-    tcp_sent(pcb, &tcp_sent_cb);
-    tcp_recv(pcb, &tcp_recv_cb);
+    tcp_sent(pcb, &tcp_lwip_sent);
+    tcp_recv(pcb, &tcp_lwip_received);
 
     if (loop_conf(loop)->proxytype == PROXY_SOCKS5) {
-        socks_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
+        socks_tcp_create(&pcb->conn, loop, &tcp_conn_io_event, pcb);
     } else if (loop_conf(loop)->proxytype == PROXY_HTTP) {
-        http_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
+        http_tcp_create(&pcb->conn, loop, &tcp_conn_io_event, pcb);
     } else {
-        direct_tcp_create(&pcb->conn, loop, &tcp_handle_event, pcb);
+        direct_tcp_create(&pcb->conn, loop, &tcp_conn_io_event, pcb);
     }
 
     pcb->conn->connect(pcb->conn, ipaddr_ntoa(&pcb->local_ip), pcb->local_port);

@@ -63,7 +63,7 @@
 #include "lwip/snmp.h"
 
 #if NSPROXY_MODIFIED
-#include "hook.h"
+#include "core.h"
 #endif
 
 #include <string.h>
@@ -323,7 +323,7 @@ udp_input(struct pbuf *p, struct netif *inp)
     pcb->flags |= UDP_FLAGS_CONNECTED;
     pcb->next = udp_pcbs;
     udp_pcbs = pcb;
-    hook_on_udp_new(pcb);
+    core_udp_new(pcb);
   }
   if (pcb != NULL) {
     pcb->gc = pcb->local_port == 53 ? 30 : 120;
