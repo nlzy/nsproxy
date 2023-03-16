@@ -16,10 +16,10 @@ enum {
 };
 
 struct loopconf {
-    char proxysrv[512];
-    char proxyport[16];
+    char proxysrv[64];
+    char proxyport[8];
     uint8_t proxytype;
-    char dnssrv[512];
+    char dnssrv[128];
     uint8_t dnstype;
 };
 

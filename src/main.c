@@ -435,25 +435,29 @@ int main(int argc, char *argv[])
     if (dns == NULL)
         dns = "tcp://1.1.1.1";
 
+    conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
+
     /* if server address is domain name, resolve to IP address at first */
     if (getaddrinfo(serv, port, &hints, &result) != 0) {
         fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
     }
     if (result->ai_family == AF_INET) {
-        inet_ntop(result->ai_family,
-                  &((struct sockaddr_in *)result->ai_addr)->sin_addr,
-                  conf.proxysrv, sizeof(conf.proxysrv));
+        struct sockaddr_in *sa4 = (struct sockaddr_in *)result->ai_addr;
+        inet_ntop(result->ai_family, &sa4->sin_addr, conf.proxysrv,
+                  sizeof(conf.proxysrv));
+        snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
+                 (unsigned int)be16toh(sa4->sin_port));
     } else if (result->ai_family == AF_INET6) {
-        inet_ntop(result->ai_family,
-                  &((struct sockaddr_in6 *)result->ai_addr)->sin6_addr,
-                  conf.proxysrv, sizeof(conf.proxysrv));
+        struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)result->ai_addr;
+        inet_ntop(result->ai_family, &sa6->sin6_addr, conf.proxysrv,
+                  sizeof(conf.proxysrv));
+        snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
+                 (unsigned int)be16toh(sa6->sin6_port));
     } else {
         fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
     }
-    strncpy(conf.proxyport, port, sizeof(conf.proxyport));
-    conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
     freeaddrinfo(result);
 
     if (strcmp(dns, "off") == 0) {
@@ -468,6 +472,11 @@ int main(int argc, char *argv[])
         strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
     } else {
         fprintf(stderr, "nsproxy: unsupported dns server address.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (strlen(conf.dnssrv) == sizeof(conf.dnssrv) - 1) {
+        fprintf(stderr, "nsproxy: dns server address too long.\n");
         exit(EXIT_FAILURE);
     }
 
