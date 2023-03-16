@@ -134,7 +134,7 @@ int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
 
-    if (strlen(addr) >= 512)
+    if (strlen(addr) >= 128)
         return -1;
 
     master->addr = strdup(addr);

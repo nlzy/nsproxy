@@ -472,6 +472,9 @@ int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     int sktype = self->isudp ? SOCK_DGRAM : SOCK_STREAM;
     int const enable = 1;
 
+    if (strlen(addr) >= 128)
+        return -1;
+
     /* connect to proxy server,
        save arguments addr and port, there are required in handshake */
     getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
