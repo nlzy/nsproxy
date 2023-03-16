@@ -265,14 +265,24 @@ static int child(int sk, char *cmd[])
     uid_t uid, gid;
 
     if (unshare(CLONE_NEWNET) == -1) {
+        if (errno == ENOSYS || errno == EINVAL) {
+            fprintf(stderr, "nsproxy: create net_namespace failed.\n"
+                            "nsproxy: This kernel may not have net_namespace "
+                            "support enabled.\n");
+            exit(EXIT_FAILURE);
+        }
+
         /* Failed, of cause. Unprivileged users can't create net_namespace.
-           Try to create with a user_namespace */
+           Try again with user_namespace */
         uid = getuid();
         gid = getgid();
 
         if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
-            perror("unshare()");
-            abort();
+            fprintf(stderr,
+                    "nsproxy: create net_namespace failed: %s\n"
+                    "nsproxy: nsproxy can't run on this system.\n",
+                    strerror(errno));
+            exit(EXIT_FAILURE);
         }
 
         set_setgroups("deny");
@@ -380,7 +390,6 @@ int main(int argc, char *argv[])
     }
     strncpy(conf.proxyport, port, sizeof(conf.proxyport));
     conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
-
     freeaddrinfo(result);
 
     if (strcmp(dns, "off") == 0) {
