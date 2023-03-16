@@ -435,7 +435,7 @@ int main(int argc, char *argv[])
     if (dns == NULL)
         dns = "tcp://1.1.1.1";
 
-    /* resolve domain to ip address */
+    /* if server address is domain name, resolve to IP address at first */
     if (getaddrinfo(serv, port, &hints, &result) != 0) {
         fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
@@ -471,6 +471,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    /* main */
     if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
         perror("socketpair()");
         abort();

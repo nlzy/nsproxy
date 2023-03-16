@@ -23,10 +23,11 @@ struct conn_tcpdns {
     char *addr;
     uint16_t port;
 
-    /* because a single TCP connection can only handle one query, user may
-       initiate multiple queries on a single pseudo UDP connection, so there is
-       multiple workers, each worker open a single TCP connection for a single
-       query.
+    /* user may initiate multiple queries on a single pseudo UDP connection, so
+       there is multiple workers, each worker open a single TCP connection for a
+       single query.
+       because in DNS protocol, a single TCP connection can only handle one
+       query
     */
     struct conn_tcpdns_worker *workers[4];
     size_t nworker;
