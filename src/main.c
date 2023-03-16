@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
 {
     int skpair[2];
     pid_t cid;
-    int opt, err;
+    int opt;
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     struct loopconf conf;
@@ -436,7 +436,7 @@ int main(int argc, char *argv[])
         dns = "tcp://1.1.1.1";
 
     /* resolve domain to ip address */
-    if ((err = getaddrinfo(serv, port, &hints, &result)) != 0) {
+    if (getaddrinfo(serv, port, &hints, &result) != 0) {
         fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
         exit(EXIT_FAILURE);
     }

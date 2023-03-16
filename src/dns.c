@@ -232,10 +232,16 @@ ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 void tcpdns_destroy(struct sk_ops *conn)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct conn_tcpdns_worker *worker;
+    size_t i;
 
-    while (master->nworker) {
-        tcpdns_worker_destroy(master->workers[0]);
+    for (i = 0; i < master->nworker; i++) {
+        worker = master->workers[i];
+        if (worker->proxy)
+            worker->proxy->destroy(worker->proxy);
+        free(worker);
     }
+
     free(master->addr);
     free(master);
 }
