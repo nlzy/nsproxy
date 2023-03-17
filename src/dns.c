@@ -29,13 +29,15 @@ struct conn_tcpdns {
        because in DNS protocol, a single TCP connection can only handle one
        query
     */
-    struct conn_tcpdns_worker *workers[4];
-    size_t nworker;
+    struct conn_tcpdns_worker *workers;
 };
 
 struct conn_tcpdns_worker {
     struct conn_tcpdns *master;
     struct sk_ops *proxy;
+
+    struct conn_tcpdns_worker *prev;
+    struct conn_tcpdns_worker *next;
 
     char buffer[4096];
     ssize_t nbuffer;
@@ -49,24 +51,25 @@ void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
     struct conn_tcpdns *master = worker->master;
     size_t i;
 
+    if (!worker)
+        return;
+
     /* close connection (if present) */
     if (worker->proxy) {
         worker->proxy->destroy(worker->proxy);
         worker->proxy = NULL;
     }
 
-    /* remove this worker from workers list */
-    for (i = 0; i < master->nworker; i++) {
-        if (master->workers[i] == worker) {
-            break;
-        }
-    }
-    if (i != master->nworker) {
-        master->workers[i] = master->workers[master->nworker - 1];
-        master->nworker--;
-    }
+    /* remove from workers list */
+    if (worker->next)
+        worker->next->prev = worker->prev;
 
-    /* gone */
+    if (worker->prev)
+        worker->prev->next = worker->next;
+
+    if (master->workers == worker)
+        master->workers = worker->next;
+
     free(worker);
 }
 
@@ -161,9 +164,6 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     struct conn_tcpdns_worker *worker;
     uint16_t sizebe;
 
-    if (master->nworker == arraysizeof(master->workers))
-        return -EAGAIN; /* no available worker */
-
     if (size + 2 > sizeof(worker->buffer))
         return -EAGAIN; /* query too large */
 
@@ -189,9 +189,14 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 
     worker->proxy->connect(worker->proxy, master->addr, master->port);
 
-    /* add to workers list */
-    master->workers[master->nworker] = worker;
-    master->nworker++;
+    /* insert to front of worker list */
+    worker->prev = NULL;
+    worker->next = master->workers;
+
+    if (master->workers)
+        master->workers->prev = worker;
+
+    master->workers = worker;
 
     return size;
 }
@@ -202,19 +207,17 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-    struct conn_tcpdns_worker *worker = NULL;
+    struct conn_tcpdns_worker *worker;
     size_t i;
     ssize_t n;
 
     /* find first worker which marked done */
-    for (i = 0; i < master->nworker; i++) {
-        if (master->workers[i]->done) {
-            worker = master->workers[i];
+    for (worker = master->workers; worker; worker = worker->next) {
+        if (worker->done)
             break;
-        }
     }
     if (!worker)
-        return -EAGAIN; /* no worker done */
+        return -EAGAIN; /* no worker marked done */
 
     /* copy answer */
     n = worker->nbuffer - 2;
@@ -230,15 +233,10 @@ ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 void tcpdns_destroy(struct sk_ops *conn)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-    struct conn_tcpdns_worker *worker;
     size_t i;
 
-    for (i = 0; i < master->nworker; i++) {
-        worker = master->workers[i];
-        if (worker->proxy)
-            worker->proxy->destroy(worker->proxy);
-        free(worker);
-    }
+    while(master->workers)
+        tcpdns_worker_destroy(master->workers);
 
     free(master->addr);
     free(master);
