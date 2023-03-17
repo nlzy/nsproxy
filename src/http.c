@@ -96,6 +96,8 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
+    loglv(1, "Connected to tcp:%s:%u", self->addr, (unsigned)self->port);
+
     /* good, handshake finish, listen and forward epoll event for user */
     self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
     self->io_poller.on_epoll_event = &http_io_event;
@@ -274,10 +276,8 @@ ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "--- http %zd bytes. tcp %s:%u\n", nsent, self->addr,
-            (unsigned int)self->port);
-#endif
+    loglv(3, "--- http %zd bytes. tcp:%s:%u", nsent, self->addr,
+          (unsigned)self->port);
 
     return nsent;
 }
@@ -303,10 +303,8 @@ ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "+++ http %zd bytes. tcp %s:%u\n", nread, self->addr,
-            (unsigned int)self->port);
-#endif
+    loglv(3, "+++ http %zd bytes. tcp:%s:%u", nread, self->addr,
+          (unsigned)self->port);
 
     return nread;
 }
@@ -327,6 +325,12 @@ void http_destroy(struct sk_ops *conn)
             perror("shutdown()");
             abort();
         }
+    }
+
+    if (self->io_poller.on_epoll_event == &http_io_event) {
+        loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
+    } else {
+        loglv(0, "FAILED to connect to proxy server.");
     }
 
     if (close(self->sfd) == -1) {

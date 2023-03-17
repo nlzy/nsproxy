@@ -19,20 +19,21 @@
 #include "loop.h"
 #include "lwip/opt.h"
 
+int nsproxy_verbose_level__ = 0;
+
 static void print_help(void)
 {
     printf(
         "usage: \n"
-        "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] <command>\n\n"
+        "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
+        "<command>\n"
+        "options:\n"
         "  -H\n"
         "    Use http proxy, not socks5.\n"
-        "\n"
         "  -s <server>\n"
         "    Proxy server address.\n"
-        "\n"
         "  -p <port>\n"
         "    Proxy server port.\n"
-        "\n"
         "  -d <dns>\n"
         "    DNS redirect, allow following options:\n"
         "      -d off\n"
@@ -44,7 +45,10 @@ static void print_help(void)
         "        Redirect DNS requests to specified TCP nameserver.\n"
         "      -d udp://<nameserver_ipaddress>\n"
         "        Redirect DNS requests to specified UDP nameserver.\n"
-        "\n");
+        "  -v\n"
+        "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
+        "  -q\n"
+        "    Be quite.\n");
 }
 
 static int write_string(const char *fname, const char *str)
@@ -301,6 +305,37 @@ static int parent(int sk, struct loopconf *conf)
         abort();
     }
 
+    if (nsproxy_verbose_level__ >= 0) {
+        char const *ptype, *dnsenabled, *dnsserv, *dnscomment;
+
+        if (conf->proxytype == PROXY_SOCKS5)
+            ptype = ", SOCKS";
+        else if (conf->proxytype == PROXY_HTTP)
+            ptype = ", HTTP";
+        else
+            ptype = "(none)";
+
+        if (conf->dnstype == DNS_REDIR_OFF) {
+            dnsenabled = "off";
+            dnsserv = dnscomment = "";
+        } else if (conf->dnstype == DNS_REDIR_DIRECT) {
+            dnsenabled = "direct";
+            dnsserv = dnscomment = "";
+        } else if (conf->dnstype == DNS_REDIR_TCP) {
+            dnsenabled = "enabled, ";
+            dnsserv = conf->dnssrv;
+            dnscomment = ", TCP";
+        } else {
+            dnsenabled = "enabled, ";
+            dnsserv = conf->dnssrv;
+            dnscomment = ", UDP";
+        }
+
+        loglv(0, "Proxy:     %s:%s%s", conf->proxysrv, conf->proxyport, ptype);
+        loglv(0, "DNS Redir: %s%s%s", dnsenabled, dnsserv, dnscomment);
+        loglv(0, "Verbose:   %s", nsproxy_verbose_level__ > 0 ? "Yes" : "No");
+    }
+
     /* write a byte after sigmask is set, indicate set up completely */
     if (write(sk, &dummy, sizeof(dummy)) == -1) {
         perror("write()");
@@ -402,7 +437,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+Hs:p:d:")) != -1) {
+    while ((opt = getopt(argc, argv, "+Hs:p:d:qv")) != -1) {
         switch (opt) {
         case 'H':
             ishttp = 1;
@@ -415,6 +450,12 @@ int main(int argc, char *argv[])
             break;
         case 'd':
             dns = optarg;
+            break;
+        case 'v':
+            nsproxy_verbose_level__++;
+            break;
+        case 'q':
+            nsproxy_verbose_level__ = -255;
             break;
         default:
             exit(EXIT_FAILURE);

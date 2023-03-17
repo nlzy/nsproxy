@@ -280,6 +280,8 @@ void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
         return;
     }
 
+    loglv(1, "Connected to tcp:%s:%u", self->addr, (unsigned)self->port);
+
     /* good, handshake finish, listen and forward epoll event for user */
     self->io_poller_ev.events = EPOLLIN | EPOLLOUT;
     self->io_poller.on_epoll_event = &socks_io_event;
@@ -501,6 +503,7 @@ int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     if (self->isudp) {
         /* it's no need to handshake in udp, start forward packet now */
+        loglv(1, "Forwarding udp:%s:%u", addr, (unsigned)port);
         self->io_poller.on_epoll_event = &socks_io_event;
         self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
     } else {
@@ -626,10 +629,8 @@ ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "--- socks %zd bytes. %s %s:%u\n", nsent,
-            self->isudp ? "UDP" : "TCP", self->addr, (unsigned int)self->port);
-#endif
+    loglv(3, "--- socks %zd bytes. %s:%s:%u", nsent,
+          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
 
     return nsent;
 }
@@ -655,10 +656,8 @@ ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "+++ socks %zd bytes. %s %s:%u\n", nread,
-            self->isudp ? "UDP" : "TCP", self->addr, (unsigned int)self->port);
-#endif
+    loglv(3, "+++ socks %zd bytes. %s:%s:%u", nread,
+          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
 
     /* is udp, parse and remove header */
     if (nread > 0 && self->isudp) {
@@ -699,6 +698,12 @@ void socks_destroy(struct sk_ops *conn)
             perror("shutdown()");
             abort();
         }
+    }
+
+    if (self->io_poller.on_epoll_event == &socks_io_event) {
+        loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
+    } else {
+        loglv(0, "FAILED to connect proxy server.");
     }
 
     if (close(self->sfd) == -1) {

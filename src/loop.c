@@ -223,6 +223,7 @@ int loop_run(struct loopctx *loop)
                     abort();
                 }
                 if (sig.ssi_signo == SIGCHLD) {
+                    loglv(1, "nsproxy is closing, bye~");
                     loop_deinit(loop);
                     return 0;
                 }

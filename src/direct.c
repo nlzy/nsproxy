@@ -147,10 +147,8 @@ ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "--- direct %zd bytes. %s %s:%u\n", nsent,
-            self->isudp ? "UDP" : "TCP", self->addr, (unsigned int)self->port);
-#endif
+    loglv(3, "--- direct %zd bytes. %s:%s:%u", nsent,
+          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
 
     return nsent;
 }
@@ -171,10 +169,8 @@ ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-#ifndef NDEBUG
-    fprintf(stderr, "+++ direct %zd bytes. %s %s:%u\n", nread,
-            self->isudp ? "UDP" : "TCP", self->addr, (unsigned int)self->port);
-#endif
+    loglv(3, "+++ direct %zd bytes. %s:%s:%u", nread,
+          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
 
     return nread;
 }

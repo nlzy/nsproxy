@@ -23,3 +23,11 @@
     ((err) == ECONNRESET || (err) == ECONNREFUSED || (err) == EPIPE || \
      (err) == ETIMEDOUT || (err) == EINPROGRESS || (err) == EAGAIN ||  \
      (err) == ENOTCONN)
+
+#define loglv(lv, str, ...)                                        \
+    do {                                                           \
+        if (nsproxy_verbose_level__ >= lv)                         \
+            fprintf(stderr, "[nsproxy] " str "\n", ##__VA_ARGS__); \
+    } while (0)
+
+extern int nsproxy_verbose_level__;

@@ -235,7 +235,7 @@ void tcpdns_destroy(struct sk_ops *conn)
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
     size_t i;
 
-    while(master->workers)
+    while (master->workers)
         tcpdns_worker_destroy(master->workers);
 
     free(master->addr);

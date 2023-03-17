@@ -22,7 +22,7 @@ It has the following features:
 USAGE
 ----------
 
-nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] <command>
+nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] <command>
 
 Examples:
   # Use socks5 proxy
@@ -57,6 +57,12 @@ Options:
       -d udp://<nameserver_ipaddress>
         Redirect DNS requests to specified UDP nameserver.
     Default value is "tcp://1.1.1.1"
+
+  -v
+    Verbose mode. Use "-vv" or "-vvv" for more verbose.
+
+  -q
+    Be quite.
 
 
 KNOWN ISSUE
