@@ -41,11 +41,10 @@
 #define IPV6_FRAG_COPYHEADER          1
 
 /* TCP tuning */
-#define TCP_MSS          64000U
-#define TCP_WND          128000U
-#define TCP_SND_BUF      128000U
-#define TCP_SNDLOWAT     32000U
-#define TCP_SND_QUEUELEN 32U
+#define TCP_MSS          64000
+#define TCP_WND          128000
+#define TCP_SND_BUF      128000
+#define TCP_SND_QUEUELEN 32
 #define LWIP_WND_SCALE   1
 #define TCP_RCV_SCALE    1
 

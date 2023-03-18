@@ -291,6 +291,8 @@ PACK_STRUCT_END
 #if TCP_SND_QUEUELEN < (2 * (TCP_SND_BUF / TCP_MSS))
 #error "lwip_sanity_check: WARNING: TCP_SND_QUEUELEN must be at least as much as (2 * TCP_SND_BUF/TCP_MSS) for things to work. If you know what you are doing, define LWIP_DISABLE_TCP_SANITY_CHECKS to 1 to disable this error."
 #endif
+#ifndef NSPROXY_MODIFIED
+/* disable checking for TCP_SNDLOWAT and TCP_SNDQUEUELOWAT, due to its unused but failed */
 #if TCP_SNDLOWAT >= TCP_SND_BUF
 #error "lwip_sanity_check: WARNING: TCP_SNDLOWAT must be less than TCP_SND_BUF. If you know what you are doing, define LWIP_DISABLE_TCP_SANITY_CHECKS to 1 to disable this error."
 #endif
@@ -299,6 +301,7 @@ PACK_STRUCT_END
 #endif
 #if TCP_SNDQUEUELOWAT >= TCP_SND_QUEUELEN
 #error "lwip_sanity_check: WARNING: TCP_SNDQUEUELOWAT must be less than TCP_SND_QUEUELEN. If you know what you are doing, define LWIP_DISABLE_TCP_SANITY_CHECKS to 1 to disable this error."
+#endif
 #endif
 #if !MEMP_MEM_MALLOC && PBUF_POOL_SIZE && (PBUF_POOL_BUFSIZE <= (PBUF_LINK_ENCAPSULATION_HLEN + PBUF_LINK_HLEN + PBUF_IP_HLEN + PBUF_TRANSPORT_HLEN))
 #error "lwip_sanity_check: WARNING: PBUF_POOL_BUFSIZE does not provide enough space for protocol headers. If you know what you are doing, define LWIP_DISABLE_TCP_SANITY_CHECKS to 1 to disable this error."

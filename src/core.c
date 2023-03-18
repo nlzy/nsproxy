@@ -280,9 +280,9 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 
     pcb->sndq = pbuf_free_header(pcb->sndq, len);
 
-    if ((pcb->state == ESTABLISHED || pcb->state == CLOSE_WAIT) &&
-        tcp_sndbuf(pcb) > TCP_SNDLOWAT)
-        proxy->evctl(proxy, EPOLLIN, 1);
+    if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
+        if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
+            proxy->evctl(proxy, EPOLLIN, 1);
 
     return ERR_OK;
 }
