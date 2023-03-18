@@ -38,15 +38,20 @@ target_include_directories(nsproxy PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/src"
 )
 
+target_compile_definitions(nsproxy PRIVATE
+    _GNU_SOURCE
+    _FORTIFY_SOURCE=2
+)
+
 target_compile_options(nsproxy PRIVATE
     -Wall
     -Wextra
     -Wno-unused-parameter
     -Wno-unused-variable
-    -D_FORTIFY_SOURCE=2
-    $<$<CONFIG:DEBUG>:-fsanitize=address>
+    -fstack-protector-strong
+    $<$<CONFIG:Debug>:-fsanitize=address>
 )
 
 target_link_options(nsproxy PRIVATE
-    $<$<CONFIG:DEBUG>:-fsanitize=address>
+    $<$<CONFIG:Debug>:-fsanitize=address>
 )
