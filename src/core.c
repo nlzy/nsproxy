@@ -17,17 +17,28 @@
 /* try to recv data from proxy server and send to application */
 static void udp_proxy_input(struct sk_ops *proxy, struct udp_pcb *pcb)
 {
-    char buffer[65535];
-    ssize_t nread;
-    struct pbuf *p;
+    for (;;) {
+        char buffer[65535];
+        ssize_t nread;
+        struct pbuf *p;
 
-    nread = proxy->recv(proxy, buffer, sizeof(buffer));
-    if (nread > 0) {
+        nread = proxy->recv(proxy, buffer, sizeof(buffer));
+
+        if (nread < 0) {
+            proxy->evctl(proxy, EPOLLIN, 1);
+            return;
+        }
+
         if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
             fprintf(stderr, "Out of Memory.\n");
             abort();
         }
-        udp_send(pcb, p);
+
+        if (udp_send(pcb, p) != ERR_OK) {
+            fprintf(stderr, "Out of Memory.\n");
+            abort();
+        }
+
         pbuf_free(p);
     }
 }
@@ -48,23 +59,23 @@ static void udp_proxy_output(struct sk_ops *proxy, struct udp_pcb *pcb)
             pbuf_copy_partial(p, buffer, p->tot_len, 0);
             nsent = pcb->proxy->send(pcb->proxy, buffer, p->tot_len);
         }
-        if (nsent > 0) {
-            pbuf_free(p);
-            continue;
-        } else {
+
+        if (nsent == -EAGAIN)
             break;
-        }
+
+        /* Succeed. Or failed other than EAGAIN which would not handled in UDP.
+         */
+        pbuf_free(p);
     }
 
     pcb->nrcvq -= i;
 
-    if (pcb->nrcvq == 0) {
-        /* all succeed */
-        proxy->evctl(proxy, EPOLLOUT, 0);
-    } else {
-        /* some failed  */
+    if (pcb->nrcvq > 0) {
+        /* EAGAIN happened at i packet*/
         memmove(pcb->rcvq, pcb->rcvq + i, pcb->nrcvq * sizeof(pcb->rcvq[0]));
         proxy->evctl(proxy, EPOLLOUT, 1);
+    } else {
+        proxy->evctl(proxy, EPOLLOUT, 0);
     }
 }
 
@@ -73,6 +84,10 @@ static void udp_conn_io_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
 
+    /* Fatal errors (e.g. ENOMEM) already handled in the impl of sk_ops.
+       Other failures (e.g. ECONNABORTED) handled here, others part of this
+       program could simplely retry when IO error occured.
+    */
     if (event & (EPOLLERR | EPOLLHUP)) {
         pcb->proxy->destroy(pcb->proxy);
         pcb->proxy = NULL;
@@ -123,7 +138,7 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         pcb->rcvq[pcb->nrcvq++] = p;
     }
 
-    udp_proxy_output(pcb->proxy, pcb);
+    udp_proxy_output(proxy, pcb);
 }
 
 /* called by lwip when a udp connection is create
@@ -160,7 +175,7 @@ void core_udp_new(struct udp_pcb *pcb)
         pcb->proxy->connect(pcb->proxy, addr, port);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
-        pcb->proxy = NULL; 
+        pcb->proxy = NULL;
     } else {
         pcb->proxy = direct_udp_create(loop, &udp_conn_io_event, pcb);
         pcb->proxy->connect(pcb->proxy, addr, port);
@@ -170,57 +185,49 @@ void core_udp_new(struct udp_pcb *pcb)
 /* try to recv data from proxy server and send to application */
 static void tcp_proxy_input(struct sk_ops *proxy, struct tcp_pcb *pcb)
 {
-    ssize_t nread;
-    struct pbuf *p;
-    size_t s = LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb));
+    for (; tcp_sndbuf(pcb) && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN - 4;) {
+        ssize_t nread;
+        struct pbuf *p;
 
-    /* is pcb->sndq full ? */
-    if (!tcp_sndbuf(pcb) || tcp_sndqueuelen(pcb) > TCP_SND_QUEUELEN - 4) {
-        /* full, stop polling more data */
-        proxy->evctl(proxy, EPOLLIN, 0);
-        return;
-    }
+        if ((p = pbuf_alloc(PBUF_RAW, LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb)),
+                            PBUF_RAM)) == NULL) {
+            fprintf(stderr, "Out of Memory.\n");
+            abort();
+        }
 
-    if ((p = pbuf_alloc(PBUF_RAW, s, PBUF_RAM)) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+        nread = proxy->recv(proxy, p->payload, p->len);
+        pbuf_realloc(p, nread); /* set the acture length to p->tot_len */
 
-    nread = proxy->recv(proxy, p->payload, s);
+        if (nread < 0) {
+            proxy->evctl(proxy, EPOLLIN, 1);
+            pbuf_free(p);
+            return;
+        }
 
-    /* shirk, set p->tot_len = nread */
-    pbuf_realloc(p, nread);
+        if (nread == 0) {
+            /* got FIN from proxy, so we send a FIN to application */
+            tcp_shutdown(pcb, 0, 1);
+            proxy->evctl(proxy, EPOLLIN, 0);
+            pbuf_free(p);
+            return;
+        }
 
-    if (nread > 0) {
-        /* succeed, received some data, now send to application then
-           enqueue to pcb->sndq
-        */
+        /* send to application and enqueue to pcb->sndq */
         if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
             fprintf(stderr, "Out of Memory.\n");
             abort();
         }
-        tcp_output(pcb);
-
         if (pcb->sndq == NULL)
             pcb->sndq = p;
         else
             pbuf_cat(pcb->sndq, p);
 
-        p = NULL;
-    } else if (nread == 0) {
-        /* proxy server return FIN, send a FIN to application too */
-        tcp_shutdown(pcb, 0, 1);
-        proxy->evctl(proxy, EPOLLIN, 0);
-    } else if (nread == -EAGAIN) {
-        /* temporarily unavailable, try again later */
-        proxy->evctl(proxy, EPOLLIN, 1);
-    } else {
-        /* failed, error will handle in tcp_proxy_event() */
-        proxy->evctl(proxy, EPOLLIN, 0);
+        /* p is moved into pcb->sndq, don't free */
+
+        tcp_output(pcb); /* don't delay */
     }
 
-    if (p)
-        pbuf_free(p); /* did't enqueue, need to free here */
+    proxy->evctl(proxy, EPOLLIN, 0);
 }
 
 /* try to send data to proxy server, data already in pcb->rcvq */
@@ -228,24 +235,19 @@ static void tcp_proxy_output(struct sk_ops *proxy, struct tcp_pcb *pcb)
 {
     ssize_t nsent;
 
-    if (pcb->rcvq == NULL) {
-        /* no data, stop listen on EPOLLOUT event */
-        proxy->evctl(proxy, EPOLLOUT, 0);
-        return;
-    }
+    while (pcb->rcvq) {
+        nsent = proxy->send(proxy, pcb->rcvq->payload, pcb->rcvq->len);
 
-    nsent = proxy->send(proxy, pcb->rcvq->payload, pcb->rcvq->len);
-    if (nsent > 0) {
-        /* succeed, free rcvq and update window */
+        if (nsent < 0) {
+            proxy->evctl(proxy, EPOLLOUT, 1);
+            return;
+        }
+
         pcb->rcvq = pbuf_free_header(pcb->rcvq, nsent);
         tcp_recved(pcb, nsent);
-    } else if (nsent == -EAGAIN) {
-        /* temporarily unavailable, try again later */
-        proxy->evctl(proxy, EPOLLOUT, 1);
-    } else {
-        /* failed, error will handle in tcp_proxy_event() */
-        proxy->evctl(proxy, EPOLLOUT, 0);
     }
+
+    proxy->evctl(proxy, EPOLLOUT, 0);
 }
 
 /* handle event occured in connection connected to proxy server */
@@ -253,6 +255,10 @@ static void tcp_proxy_event(void *userp, unsigned int event)
 {
     struct tcp_pcb *pcb = userp;
 
+    /* Fatal errors (e.g. ENOMEM) already handled in the impl of sk_ops.
+       Other failures (e.g. ECONNABORTED) handled here, others part of this
+       program could simplely retry when IO error occured.
+    */
     if (event & EPOLLERR) {
         pcb->proxy->destroy(pcb->proxy);
         pcb->proxy = NULL;
@@ -321,7 +327,7 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
     else
         pcb->rcvq = p;
 
-    tcp_proxy_output(pcb->proxy, pcb);
+    tcp_proxy_output(proxy, pcb);
 
     return ERR_OK;
 }
