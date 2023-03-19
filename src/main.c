@@ -424,21 +424,24 @@ int main(int argc, char *argv[])
     int opt;
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
-    struct loopconf conf;
+    struct loopconf conf = { 0 };
     const char *serv = NULL;
     const char *port = NULL;
     const char *dns = NULL;
-    int ishttp = 0;
+    int ishttp = 0, isdirect = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
         print_help();
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+Hs:p:d:qv")) != -1) {
+    while ((opt = getopt(argc, argv, "+HDs:p:d:qv")) != -1) {
         switch (opt) {
         case 'H':
             ishttp = 1;
+            break;
+        case 'D':
+            isdirect = 1;
             break;
         case 's':
             serv = optarg;
@@ -474,7 +477,16 @@ int main(int argc, char *argv[])
     if (dns == NULL)
         dns = "tcp://1.1.1.1";
 
-    conf.proxytype = ishttp ? PROXY_HTTP : PROXY_SOCKS5;
+    if (ishttp && isdirect) {
+        fprintf(stderr, "nsproxy: can't use -H and -D together.\n");
+        exit(EXIT_FAILURE);
+    } else if (ishttp) {
+        conf.proxytype = PROXY_HTTP;
+    } else if (isdirect) {
+        conf.proxytype = PROXY_DIRECT;
+    } else {
+        conf.proxytype = PROXY_SOCKS5;
+    }
 
     /* if server address is domain name, resolve to IP address at first */
     if (getaddrinfo(serv, port, &hints, &result) != 0) {

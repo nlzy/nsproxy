@@ -158,9 +158,13 @@ void core_udp_new(struct udp_pcb *pcb)
     if (conf->proxytype == PROXY_SOCKS5) {
         pcb->proxy = socks_udp_create(loop, &udp_conn_io_event, pcb);
         pcb->proxy->connect(pcb->proxy, addr, port);
-    } /* else - leave pcb->proxy == NULL, udp_lwip_received() handled this
-         situation
-      */
+    } else if (conf->proxytype == PROXY_HTTP) {
+        /* let udp_lwip_received() drop packet */
+        pcb->proxy = NULL; 
+    } else {
+        pcb->proxy = direct_udp_create(loop, &udp_conn_io_event, pcb);
+        pcb->proxy->connect(pcb->proxy, addr, port);
+    }
 }
 
 /* try to recv data from proxy server and send to application */

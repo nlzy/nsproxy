@@ -12,7 +12,8 @@ enum {
 
 enum {
     PROXY_SOCKS5,
-    PROXY_HTTP
+    PROXY_HTTP,
+    PROXY_DIRECT
 };
 
 struct loopconf {
