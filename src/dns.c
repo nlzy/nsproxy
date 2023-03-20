@@ -165,7 +165,7 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     uint16_t sizebe;
 
     if (size + 2 > sizeof(worker->buffer))
-        return -EAGAIN; /* query too large */
+        return -E2BIG; /* query too large */
 
     /* init worker */
     if ((worker = calloc(1, sizeof(struct conn_tcpdns_worker))) == NULL) {

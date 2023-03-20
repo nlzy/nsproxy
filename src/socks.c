@@ -594,19 +594,16 @@ ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         addr.port = self->port;
 
         ret = socks5_hdr_put(buffer + offset, sizeof(buffer) - offset, &hdr);
-        if (ret == -1)
-            return -EAGAIN;
         offset += ret;
 
         ret = socks5_addr_put(buffer + offset, sizeof(buffer) - offset, &addr);
-        if (ret == -1)
-            return -EAGAIN;
         offset += ret;
 
-        /* assumed max udp packet payload is (65535 - 8 - 40) */
-        /* header takes some space, check it */
+        /* assumed max udp packet payload length is (65535 - 8 - 40),
+           and socks5 header takes some space, check it
+        */
         if (offset + size > 65535 - 8 - 40)
-            return -EAGAIN;
+            return -E2BIG;
 
         nsent = send(self->sfd, buffer, offset, MSG_NOSIGNAL | MSG_MORE);
         if (nsent == -1) {
@@ -664,6 +661,9 @@ ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         struct socks5hdr hdr;
         struct socks5addr ad;
         ssize_t ret, offset = 0;
+
+        /* if it's a bad packet, drop ,and return -EAGAIN to tell user to retry
+         */
 
         ret = socks5_hdr_get(&hdr, data + offset, nread - offset);
         if (ret == -1)
