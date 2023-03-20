@@ -162,7 +162,7 @@ ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
     nread = recv(self->sfd, data, size, 0);
     if (nread == -1) {
         if (is_ignored_skerr(errno)) {
-            nread = -errno;
+            return -errno;
         } else {
             perror("send()");
             abort();

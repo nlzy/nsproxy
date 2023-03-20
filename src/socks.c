@@ -646,7 +646,7 @@ ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
     nread = recv(self->sfd, data, size, 0);
     if (nread == -1) {
         if (is_ignored_skerr(errno)) {
-            nread = -errno;
+            return -errno;
         } else {
             perror("send()");
             abort();
@@ -657,7 +657,7 @@ ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
           self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
 
     /* is udp, parse and remove header */
-    if (nread > 0 && self->isudp) {
+    if (self->isudp) {
         struct socks5hdr hdr;
         struct socks5addr ad;
         ssize_t ret, offset = 0;
