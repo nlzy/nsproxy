@@ -185,7 +185,8 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
         worker->proxy =
             http_tcp_create(master->loop, &tcpdns_worker_handle_event, worker);
     else
-        abort();
+        worker->proxy = direct_tcp_create(master->loop,
+                                          &tcpdns_worker_handle_event, worker);
 
     worker->proxy->connect(worker->proxy, master->addr, master->port);
 
