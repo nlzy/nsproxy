@@ -575,6 +575,10 @@ void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    char buffer[512]; /* for socks header only  */
+    struct msghdr msg;
+    struct iovec iov[2];
+    size_t iovlen = 0;
     ssize_t nsent;
 
     /* handshake is not finished */
@@ -582,9 +586,7 @@ ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         return -EAGAIN;
     }
 
-    /* udp, send a header before send actual data used MSG_MORE */
     if (self->isudp) {
-        char buffer[512];
         struct socks5hdr hdr = { 0 };
         struct socks5addr addr;
         size_t offset = 0;
@@ -599,24 +601,20 @@ ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         ret = socks5_addr_put(buffer + offset, sizeof(buffer) - offset, &addr);
         offset += ret;
 
-        /* assumed max udp packet payload length is (65535 - 8 - 40),
-           and socks5 header takes some space, check it
-        */
-        if (offset + size > 65535 - 8 - 40)
-            return -E2BIG;
-
-        nsent = send(self->sfd, buffer, offset, MSG_NOSIGNAL | MSG_MORE);
-        if (nsent == -1) {
-            if (is_ignored_skerr(errno)) {
-                return -errno; /* return imm */
-            } else {
-                perror("send()");
-                abort();
-            }
-        }
+        iov[iovlen].iov_base = buffer;
+        iov[iovlen].iov_len = offset;
+        iovlen++;
     }
 
-    nsent = send(self->sfd, data, size, MSG_NOSIGNAL);
+    iov[iovlen].iov_base = (void *)data;
+    iov[iovlen].iov_len = size;
+    iovlen++;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = iov;
+    msg.msg_iovlen = iovlen;
+
+    nsent = sendmsg(self->sfd, &msg, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (is_ignored_skerr(errno)) {
             nsent = -errno;
