@@ -406,6 +406,11 @@ struct tcp_pcb {
      may be NULL
   */
   struct pbuf *rcvq;
+
+  /* remain seconds to destory this pcb, decrease by 1 every second,
+     if reach to 0, destory this pcb
+  */
+  u16_t gc;
 #endif
 };
 

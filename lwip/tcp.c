@@ -235,6 +235,25 @@ tcp_free_listen(struct tcp_pcb *pcb)
   memp_free(MEMP_TCP_PCB_LISTEN, pcb);
 }
 
+#if NSPROXY_MODIFIED
+static void
+tcp_gctmr(void)
+{
+  struct tcp_pcb *tofree, *pcb = tcp_active_pcbs;
+
+  while (pcb != NULL) {
+    pcb->gc--;
+    if (pcb->gc == 0) {
+      tofree = pcb;
+      pcb = pcb->next;
+      tcp_abort(tofree);
+    } else {
+      pcb = pcb->next;
+    }
+  }
+}
+#endif
+
 /**
  * Called periodically to dispatch TCP timers.
  */
@@ -249,6 +268,13 @@ tcp_tmr(void)
        tcp_tmr() is called. */
     tcp_slowtmr();
   }
+
+#if NSPROXY_MODIFIED
+  if (tcp_timer % 4 == 0) {
+    /* call every 1000 ms */
+    tcp_gctmr();
+  }
+#endif
 }
 
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG

@@ -1617,6 +1617,10 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
   }
 #endif
 
+#ifdef NSPROXY_MODIFIED
+  pcb->gc = NSPROXY_TCP_IDLE_TIMEOUT;
+#endif
+
   return err;
 }
 
