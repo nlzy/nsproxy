@@ -326,7 +326,9 @@ udp_input(struct pbuf *p, struct netif *inp)
     core_udp_new(pcb);
   }
   if (pcb != NULL) {
-    pcb->gc = pcb->local_port == 53 ? 30 : 120;
+    pcb->gc = pcb->local_port == 53
+      ? NSPROXY_DNS_IDLE_TIMEOUT
+      : NSPROXY_UDP_IDLE_TIMEOUT;
   }
 #endif
 
@@ -903,10 +905,6 @@ udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *d
     ip_proto = IP_PROTO_UDP;
   }
 
-#if NSPROXY_MODIFIED
-  pcb->gc = pcb->local_port == 53 ? 30 : 120;
-#endif
-
   /* Determine TTL to use */
 #if LWIP_MULTICAST_TX_OPTIONS
   ttl = (ip_addr_ismulticast(dst_ip) ? udp_get_multicast_ttl(pcb) : pcb->ttl);
@@ -931,6 +929,12 @@ udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *d
     q = NULL;
     /* p is still referenced by the caller, and will live on */
   }
+
+#if NSPROXY_MODIFIED
+  pcb->gc = pcb->local_port == 53
+    ? NSPROXY_DNS_IDLE_TIMEOUT
+    : NSPROXY_UDP_IDLE_TIMEOUT;
+#endif
 
   UDP_STATS_INC(udp.xmit);
   return err;
