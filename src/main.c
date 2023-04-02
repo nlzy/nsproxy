@@ -46,7 +46,7 @@ static void print_help(void)
         "  -v\n"
         "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
         "  -q\n"
-        "    Be quite.\n");
+        "    Be quiet.\n");
 }
 
 static int write_string(const char *fname, const char *str)

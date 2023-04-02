@@ -6,10 +6,10 @@ applications force to use a specific SOCKS5 or HTTP proxy.
 
 Functionally similar to tsocks / proxychains-ng / graftcp, but using a
 totally different mechanism. It create a TUN device and launch applications in
-a fresh network_namespace, then connect the TUN device to a usermode TCP/IP
+a fresh network_namespace, then connect the TUN device to a user-mode TCP/IP
 stack and redirect connections through proxy server outside the namespace.
-Benefit from namespace mechanism, it doesn't require any privilege, and will
-not affect other processes.
+Benefiting from the namespace mechanism, it doesn't require any privilege, and
+will not affect other processes.
 
 It has the following features:
 
@@ -40,7 +40,7 @@ Options:
 
   -s <server>
     Proxy server address.
-    Default vaule is "127.0.0.1"
+    Default value is "127.0.0.1"
 
   -p <port>
     Proxy server port.
@@ -62,25 +62,24 @@ Options:
     Verbose mode. Use "-vv" or "-vvv" for more verbose.
 
   -q
-    Be quite.
+    Be quiet.
 
 
 KNOWN ISSUE
 ----------
 
 All {uid,gid} except the current user will be mapped to
-"/proc/sys/kernel/overflow{uid,gid}". That's means file owners except the
-current user will be shown as 'nobody', and program like sudo / su will not
-work.
+"/proc/sys/kernel/overflow{uid,gid}". That means file owners except the current
+user will be shown as 'nobody', and programs like sudo / su will not work.
 
 nsproxy will create a new network_namespace for proxied application, so the
 networking between inside and outside of the namespace is isolated. There's no
 route to the inside of the namespace. It's unable to establish a connection to
-the inside from the outside. In addtion, abstract UNIX domain socket is
+the inside from the outside. In addition, abstract UNIX domain sockets are
 isolated too.
 
-Connection to loopback address will not proxied, and those address is not
-referenced to the host, it's referenced to the inside of the namespace.
+Connections to loopback addresses will not be proxied, and those addresses are
+not referenced to the host, they are referenced to the inside of the namespace.
 
 
 W.I.P
@@ -88,7 +87,6 @@ W.I.P
 
  - IPv6
  - fullcone NAT
- - fake DNS
 
 
 CREDITS
