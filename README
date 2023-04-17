@@ -82,9 +82,10 @@ Connections to loopback addresses will not be proxied, and those addresses are
 not referenced to the host, they are referenced to the inside of the namespace.
 
 
-W.I.P
+TODO
 ----------
 
+ - HTTP / SOCKS authentication
  - IPv6
  - fullcone NAT
 
