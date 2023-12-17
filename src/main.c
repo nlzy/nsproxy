@@ -9,8 +9,10 @@
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <sys/mount.h>
 #include <sys/signalfd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -210,6 +212,42 @@ static int bringup_tun(void)
     return tunfd;
 }
 
+static void configure_reslove_conf(void)
+{
+    int fd;
+    char path[] = "/tmp/nsproxy-resolv-conf-XXXXXX";
+    const char *content = "nameserver " NSPROXY_GATEWAY_IP "\n";
+
+    /* create mount namespace, and make it isolate really */
+    if (unshare(CLONE_NEWNS) == -1)
+        goto failed_on_create;
+    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
+        goto failed_on_create;
+
+    if ((fd = mkstemp(path)) == -1)
+        goto failed_on_create;
+
+    if (chmod(path, 0644) == -1)
+        goto failed_after_create;
+
+    if (write(fd, content, strlen(content)) == -1)
+        goto failed_after_create;
+
+    if (mount(path, "/etc/resolv.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
+        goto failed_after_create;
+
+    close(fd);
+    unlink(path);
+    return;
+
+failed_after_create:
+    close(fd);
+    unlink(path);
+failed_on_create:
+    loglv(0, "Warning: re-bind /etc/resolv.conf failed. "
+             "DNS redirect may not work.");
+}
+
 /* send a file descriptor to sock
    must succeed, otherwise terminate this process */
 static void send_fd(int sock, int fd)
@@ -352,7 +390,7 @@ static int parent(int sk, struct loopconf *conf)
    3. Send TUN file descriptor to parent process.
    4. exec(2) target application.
 */
-static int child(int sk, char *cmd[])
+static int child(int sk, struct loopconf *conf, char *cmd[])
 {
     int tunfd;
     char dummy;
@@ -387,6 +425,9 @@ static int child(int sk, char *cmd[])
 
     /* return value is not checked, failure is allowed. */
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
+
+    if (conf->dnstype == DNS_REDIR_TCP || conf->dnstype == DNS_REDIR_UDP)
+        configure_reslove_conf();
 
     bringup_loopback();
 
@@ -547,6 +588,6 @@ int main(int argc, char *argv[])
         return parent(skpair[0], &conf);
     } else {
         close(skpair[0]);
-        return child(skpair[1], argv + optind);
+        return child(skpair[1], &conf, argv + optind);
     }
 }
