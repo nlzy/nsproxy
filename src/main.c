@@ -23,29 +23,28 @@ int nsproxy_verbose_level__ = 0;
 
 static void print_help(void)
 {
-    printf(
-        "usage: \n"
-        "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
-        "<command>\n"
-        "options:\n"
-        "  -H\n"
-        "    Use http proxy, not socks5.\n"
-        "  -s <server>\n"
-        "    Proxy server address.\n"
-        "  -p <port>\n"
-        "    Proxy server port.\n"
-        "  -d <dns>\n"
-        "    DNS redirect, allow following options:\n"
-        "      -d off\n"
-        "        Do nothings on DNS, treat as normal UDP packets.\n"
-        "      -d tcp://<nameserver_ipaddress>\n"
-        "        Redirect DNS requests to specified TCP nameserver.\n"
-        "      -d udp://<nameserver_ipaddress>\n"
-        "        Redirect DNS requests to specified UDP nameserver.\n"
-        "  -v\n"
-        "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
-        "  -q\n"
-        "    Be quiet.\n");
+    printf("usage: \n"
+           "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
+           "<command>\n"
+           "options:\n"
+           "  -H\n"
+           "    Use http proxy, not socks5.\n"
+           "  -s <server>\n"
+           "    Proxy server address.\n"
+           "  -p <port>\n"
+           "    Proxy server port.\n"
+           "  -d <dns>\n"
+           "    DNS redirect, allow following options:\n"
+           "      -d off\n"
+           "        Do nothings on DNS, treat as normal UDP packets.\n"
+           "      -d tcp://<nameserver_ipaddress>\n"
+           "        Redirect DNS requests to specified TCP nameserver.\n"
+           "      -d udp://<nameserver_ipaddress>\n"
+           "        Redirect DNS requests to specified UDP nameserver.\n"
+           "  -v\n"
+           "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
+           "  -q\n"
+           "    Be quiet.\n");
 }
 
 static int write_string(const char *fname, const char *str)
@@ -224,7 +223,7 @@ failed:
     return -1;
 }
 
-static void configure_reslove_conf(void)
+static void configure_resolv_conf(void)
 {
     int fd;
     char path[] = "/tmp/nsproxy-resolv-conf-XXXXXX";
@@ -269,7 +268,8 @@ static void configure_nsswitch_conf(void)
     if (write(fd, content, strlen(content)) == -1)
         goto failed_after_create;
 
-    if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
+    if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) ==
+        -1)
         goto failed_after_create;
 
     close(fd);
@@ -388,21 +388,23 @@ static int parent(int sk, struct loopconf *conf)
             ptype = "(none)";
 
         if (conf->dnstype == DNS_REDIR_OFF) {
-            dnsenabled = "off";
+            dnsenabled = "Disabled";
             dnsserv = dnscomment = "";
         } else if (conf->dnstype == DNS_REDIR_TCP) {
-            dnsenabled = "enabled, ";
+            dnsenabled = "Enabled, ";
             dnsserv = conf->dnssrv;
             dnscomment = ", TCP";
         } else {
-            dnsenabled = "enabled, ";
+            dnsenabled = "Enabled, ";
             dnsserv = conf->dnssrv;
             dnscomment = ", UDP";
         }
 
-        loglv(0, "Proxy:     %s:%s%s", conf->proxysrv, conf->proxyport, ptype);
-        loglv(0, "DNS Redir: %s%s%s", dnsenabled, dnsserv, dnscomment);
-        loglv(0, "Verbose:   %s", nsproxy_verbose_level__ > 0 ? "Yes" : "No");
+        loglv(0, "Proxy Server:       %s:%s%s", conf->proxysrv, conf->proxyport,
+              ptype);
+        loglv(0, "DNS Redirection:    %s%s%s", dnsenabled, dnsserv, dnscomment);
+        loglv(0, "Verbose:            %s",
+              nsproxy_verbose_level__ > 0 ? "Yes" : "No");
     }
 
     /* write a byte after sigmask is set, indicate set up completely */
@@ -461,7 +463,7 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
 
     if (conf->dnstype != DNS_REDIR_OFF) {
         if (unshare_mount() == 0) {
-            configure_reslove_conf();
+            configure_resolv_conf();
             configure_nsswitch_conf();
         }
     }
