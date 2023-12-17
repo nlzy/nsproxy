@@ -49,9 +49,7 @@ Options:
   -d <dns>
     DNS redirect, allow following options:
       -d off
-        Disable DNS redirect, treat DNS requests as normal UDP packets.
-      -d direct
-        Send DNS requests directly via local network (not proxied).
+        Do nothings on DNS, treat as normal UDP packets.
       -d tcp://<nameserver_ipaddress>
         Redirect DNS requests to specified TCP nameserver.
       -d udp://<nameserver_ipaddress>

@@ -37,10 +37,7 @@ static void print_help(void)
         "  -d <dns>\n"
         "    DNS redirect, allow following options:\n"
         "      -d off\n"
-        "        Disable DNS redirect, treat DNS requests as normal UDP "
-        "packets.\n"
-        "      -d direct\n"
-        "        Send DNS requests directly via local network (not proxied).\n"
+        "        Do nothings on DNS, treat as normal UDP packets.\n"
         "      -d tcp://<nameserver_ipaddress>\n"
         "        Redirect DNS requests to specified TCP nameserver.\n"
         "      -d udp://<nameserver_ipaddress>\n"
@@ -393,9 +390,6 @@ static int parent(int sk, struct loopconf *conf)
         if (conf->dnstype == DNS_REDIR_OFF) {
             dnsenabled = "off";
             dnsserv = dnscomment = "";
-        } else if (conf->dnstype == DNS_REDIR_DIRECT) {
-            dnsenabled = "direct";
-            dnsserv = dnscomment = "";
         } else if (conf->dnstype == DNS_REDIR_TCP) {
             dnsenabled = "enabled, ";
             dnsserv = conf->dnssrv;
@@ -465,7 +459,7 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
     /* return value is not checked, failure is allowed. */
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
-    if (conf->dnstype == DNS_REDIR_TCP || conf->dnstype == DNS_REDIR_UDP) {
+    if (conf->dnstype != DNS_REDIR_OFF) {
         if (unshare_mount() == 0) {
             configure_reslove_conf();
             configure_nsswitch_conf();
@@ -597,8 +591,6 @@ int main(int argc, char *argv[])
 
     if (strcmp(dns, "off") == 0) {
         conf.dnstype = DNS_REDIR_OFF;
-    } else if (strcmp(dns, "direct") == 0) {
-        conf.dnstype = DNS_REDIR_DIRECT;
     } else if (strstr(dns, "tcp://") == dns) {
         conf.dnstype = DNS_REDIR_TCP;
         strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv) - 1);

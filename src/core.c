@@ -154,11 +154,11 @@ void core_udp_new(struct udp_pcb *pcb)
 
     udp_recv(pcb, udp_lwip_received, NULL);
 
+    /* redir for DNS */
     if (port == 53 && strcmp(addr, NSPROXY_GATEWAY_IP) == 0) {
-        /* redir for DNS */
-        if (conf->dnstype == DNS_REDIR_DIRECT) {
-            pcb->proxy = direct_udp_create(loop, &udp_conn_io_event, pcb);
-            pcb->proxy->connect(pcb->proxy, addr, port);
+        if (conf->dnstype == DNS_REDIR_OFF) {
+            /* let udp_lwip_received() drop packet */
+            pcb->proxy = NULL;
             return;
         }
         if (conf->dnstype == DNS_REDIR_TCP) {
@@ -168,6 +168,7 @@ void core_udp_new(struct udp_pcb *pcb)
         }
         if (conf->dnstype == DNS_REDIR_UDP) {
             addr = conf->dnssrv;
+            /* continue */
         }
     }
 

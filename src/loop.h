@@ -5,7 +5,6 @@ struct loopctx;
 
 enum {
     DNS_REDIR_OFF,
-    DNS_REDIR_DIRECT,
     DNS_REDIR_TCP,
     DNS_REDIR_UDP
 };
