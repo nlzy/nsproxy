@@ -13,9 +13,10 @@ will not affect other processes.
 
 It has the following features:
 
- - Works on static linked applications.
- - Support UDP protocol.
- - Support DNS requests redirect.
+ - Support SOCKS5 / HTTP proxy protocols.
+ - Support TCP / UDP protocols.
+ - Built-in DNS redirection.
+ - Works perfectly on static linked applications.
  - No privilege required.
 
 
@@ -63,7 +64,7 @@ Options:
     Be quiet.
 
 
-KNOWN ISSUE
+LIMITATIONS
 ----------
 
 All {uid,gid} except the current user will be mapped to
