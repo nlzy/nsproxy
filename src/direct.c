@@ -52,7 +52,8 @@ int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     /* reslove string to sockaddr,
        no need to determine what type the address is
     */
-    getaddrinfo(addr, strport, &hints, &result);
+    if (getaddrinfo(addr, strport, &hints, &result) != 0)
+        return -1;
 
     if ((self->sfd = socket(result->ai_family,
                             sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {

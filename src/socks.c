@@ -476,7 +476,8 @@ int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     /* connect to proxy server,
        save arguments addr and port, there are required in handshake */
-    getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result);
+    if (getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result) != 0)
+        return -1;
 
     if ((self->sfd = socket(result->ai_family,
                             sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
