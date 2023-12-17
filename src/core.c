@@ -1,6 +1,7 @@
 #include "core.h"
 
 #include <errno.h>
+#include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -153,7 +154,7 @@ void core_udp_new(struct udp_pcb *pcb)
 
     udp_recv(pcb, udp_lwip_received, NULL);
 
-    if (port == 53 && conf->dnstype != DNS_REDIR_OFF) {
+    if (port == 53 && strcmp(addr, NSPROXY_GATEWAY_IP) == 0) {
         /* redir for DNS */
         if (conf->dnstype == DNS_REDIR_DIRECT) {
             pcb->proxy = direct_udp_create(loop, &udp_conn_io_event, pcb);
