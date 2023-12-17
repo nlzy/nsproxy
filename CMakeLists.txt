@@ -48,6 +48,7 @@ target_compile_options(nsproxy PRIVATE
     -Wextra
     -Wno-unused-parameter
     -Wno-unused-variable
+    -Wno-array-bounds # caused by tricky hacks in lwIP
     -fstack-protector-strong
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
