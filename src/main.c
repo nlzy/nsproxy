@@ -212,17 +212,26 @@ static int bringup_tun(void)
     return tunfd;
 }
 
+/* create mount namespace, and make it isolate really */
+static int unshare_mount(void)
+{
+    if (unshare(CLONE_NEWNS) == -1)
+        goto failed;
+    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
+        goto failed;
+    return 0;
+
+failed:
+    loglv(0, "Warning: Unshare mount namespace failed. "
+             "DNS redirect may not work.");
+    return -1;
+}
+
 static void configure_reslove_conf(void)
 {
     int fd;
     char path[] = "/tmp/nsproxy-resolv-conf-XXXXXX";
     const char *content = "nameserver " NSPROXY_GATEWAY_IP "\n";
-
-    /* create mount namespace, and make it isolate really */
-    if (unshare(CLONE_NEWNS) == -1)
-        goto failed_on_create;
-    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
-        goto failed_on_create;
 
     if ((fd = mkstemp(path)) == -1)
         goto failed_on_create;
@@ -245,6 +254,36 @@ failed_after_create:
     unlink(path);
 failed_on_create:
     loglv(0, "Warning: re-bind /etc/resolv.conf failed. "
+             "DNS redirect may not work.");
+}
+
+static void configure_nsswitch_conf(void)
+{
+    int fd;
+    char path[] = "/tmp/nsproxy-nsswitch-conf-XXXXXX";
+    const char *content = "hosts: files dns\n";
+
+    if ((fd = mkstemp(path)) == -1)
+        goto failed_on_create;
+
+    if (chmod(path, 0644) == -1)
+        goto failed_after_create;
+
+    if (write(fd, content, strlen(content)) == -1)
+        goto failed_after_create;
+
+    if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
+        goto failed_after_create;
+
+    close(fd);
+    unlink(path);
+    return;
+
+failed_after_create:
+    close(fd);
+    unlink(path);
+failed_on_create:
+    loglv(0, "Warning: re-bind /etc/nsswitch.conf failed. "
              "DNS redirect may not work.");
 }
 
@@ -426,8 +465,12 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
     /* return value is not checked, failure is allowed. */
     write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
-    if (conf->dnstype == DNS_REDIR_TCP || conf->dnstype == DNS_REDIR_UDP)
-        configure_reslove_conf();
+    if (conf->dnstype == DNS_REDIR_TCP || conf->dnstype == DNS_REDIR_UDP) {
+        if (unshare_mount() == 0) {
+            configure_reslove_conf();
+            configure_nsswitch_conf();
+        }
+    }
 
     bringup_loopback();
 
