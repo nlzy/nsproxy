@@ -294,7 +294,7 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
-            proxy->evctl(proxy, EPOLLIN, 1);
+            tcp_proxy_input(proxy, pcb);
 
     return ERR_OK;
 }
