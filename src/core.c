@@ -268,6 +268,11 @@ static void tcp_proxy_event(void *userp, unsigned int event)
         return;
     }
 
+    if (!pcb->proxyestab) {
+        pcb->proxyestab = 1;
+        tcp_output(pcb);
+    }
+
     if (event & EPOLLIN) {
         tcp_proxy_input(pcb->proxy, pcb);
     }

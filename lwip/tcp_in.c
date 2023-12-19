@@ -110,12 +110,18 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* LWIP_TCP_SACK_OUT */
 
 #if NSPROXY_MODIFIED
-err_t on_tcp_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
+err_t on_tcp_accept_do_nothing(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-  core_tcp_new(newpcb);
-  return 0;
+  /* We have called core_tcp_new() already, so don't care this callback that
+     indicating TCP handshake succeed.
+     Even if TCP handshake failed rarely, call to sk_ops :: destroy is
+     guaranteed by tcp_free(), still no need to handle anything at here.
+  */
+  return ERR_OK;
 }
-static struct tcp_pcb_listen nsproxy_fake_lpcb = { .accept = &on_tcp_accept };
+static struct tcp_pcb_listen nsproxy_fake_lpcb = {
+  .accept = &on_tcp_accept_do_nothing
+};
 #endif
 
 /**
@@ -746,6 +752,11 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
       return;
     }
     tcp_output(npcb);
+
+#if NSPROXY_MODIFIED
+    /* try to create a connection to proxy server when first SYN is recived */
+    core_tcp_new(npcb);
+#endif
   }
   return;
 }

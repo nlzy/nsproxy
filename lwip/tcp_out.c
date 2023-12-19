@@ -1244,6 +1244,11 @@ tcp_output(struct tcp_pcb *pcb)
   s16_t i = 0;
 #endif /* TCP_CWND_DEBUG */
 
+#if NSPROXY_MODIFIED
+  if (!pcb->proxyestab)
+    return ERR_OK;
+#endif
+
   LWIP_ASSERT_CORE_LOCKED();
 
   LWIP_ASSERT("tcp_output: invalid pcb", pcb != NULL);

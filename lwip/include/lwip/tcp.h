@@ -411,6 +411,10 @@ struct tcp_pcb {
      if reach to 0, destory this pcb
   */
   u16_t gc;
+
+  /* upstream proxy server established? if not, don't send ACK to proxied
+     application */
+  u8_t proxyestab;
 #endif
 };
 
