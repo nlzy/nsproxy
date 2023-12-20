@@ -701,6 +701,8 @@ void socks_destroy(struct sk_ops *conn)
 
     if (self->io_poller.on_epoll_event == &socks_io_event) {
         loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
+    } else if (self->io_poller.on_epoll_event == &socks_handshake_phase_4) {
+        loglv(1, "Failed to connect %s:%u", self->addr, (unsigned)self->port);
     } else {
         loglv(0, "FAILED to connect proxy server.");
     }
