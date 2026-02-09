@@ -44,7 +44,7 @@
 #define TCP_MSS          64000
 #define TCP_WND          128000
 #define TCP_SND_BUF      128000
-#define TCP_SND_QUEUELEN 32
+#define TCP_SND_QUEUELEN 65535
 #define LWIP_WND_SCALE   1
 #define TCP_RCV_SCALE    1
 
