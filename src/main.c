@@ -507,8 +507,6 @@ int main(int argc, char *argv[])
     int skpair[2];
     pid_t cid;
     int opt;
-    struct addrinfo hints = { .ai_family = AF_UNSPEC };
-    struct addrinfo *result;
     struct loopconf conf = { 0 };
     const char *serv = NULL;
     const char *port = NULL;
@@ -573,28 +571,32 @@ int main(int argc, char *argv[])
         conf.proxytype = PROXY_SOCKS5;
     }
 
-    /* if server address is domain name, resolve to IP address at first */
-    if (getaddrinfo(serv, port, &hints, &result) != 0) {
-        fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
-        exit(EXIT_FAILURE);
+    if (!isdirect) {
+        /* if server address is domain name, resolve to IP address at first */
+        struct addrinfo hints = { .ai_family = AF_UNSPEC };
+        struct addrinfo *result;
+        if (getaddrinfo(serv, port, &hints, &result) != 0) {
+            fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
+            exit(EXIT_FAILURE);
+        }
+        if (result->ai_family == AF_INET) {
+            struct sockaddr_in *sa4 = (struct sockaddr_in *)result->ai_addr;
+            inet_ntop(result->ai_family, &sa4->sin_addr, conf.proxysrv,
+                    sizeof(conf.proxysrv));
+            snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
+                    (unsigned int)be16toh(sa4->sin_port));
+        } else if (result->ai_family == AF_INET6) {
+            struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)result->ai_addr;
+            inet_ntop(result->ai_family, &sa6->sin6_addr, conf.proxysrv,
+                    sizeof(conf.proxysrv));
+            snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
+                    (unsigned int)be16toh(sa6->sin6_port));
+        } else {
+            fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
+            exit(EXIT_FAILURE);
+        }
+        freeaddrinfo(result);
     }
-    if (result->ai_family == AF_INET) {
-        struct sockaddr_in *sa4 = (struct sockaddr_in *)result->ai_addr;
-        inet_ntop(result->ai_family, &sa4->sin_addr, conf.proxysrv,
-                  sizeof(conf.proxysrv));
-        snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
-                 (unsigned int)be16toh(sa4->sin_port));
-    } else if (result->ai_family == AF_INET6) {
-        struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)result->ai_addr;
-        inet_ntop(result->ai_family, &sa6->sin6_addr, conf.proxysrv,
-                  sizeof(conf.proxysrv));
-        snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
-                 (unsigned int)be16toh(sa6->sin6_port));
-    } else {
-        fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
-        exit(EXIT_FAILURE);
-    }
-    freeaddrinfo(result);
 
     if (strcmp(dns, "off") == 0) {
         conf.dnstype = DNS_REDIR_OFF;
