@@ -378,33 +378,38 @@ static int parent(int sk, struct loopconf *conf)
     }
 
     if (nsproxy_verbose_level__ >= 0) {
-        char const *ptype, *dnsenabled, *dnsserv, *dnscomment;
+        char const *ptype, *pserv, *pport, *dnstype, *dnsserv;
+        char const pcolon = conf->proxytype == PROXY_DIRECT ? ' ' : ':';
 
-        if (conf->proxytype == PROXY_SOCKS5)
-            ptype = ", SOCKS";
-        else if (conf->proxytype == PROXY_HTTP)
-            ptype = ", HTTP";
-        else
-            ptype = "(none)";
-
-        if (conf->dnstype == DNS_REDIR_OFF) {
-            dnsenabled = "Disabled";
-            dnsserv = dnscomment = "";
-        } else if (conf->dnstype == DNS_REDIR_TCP) {
-            dnsenabled = "Enabled, ";
-            dnsserv = conf->dnssrv;
-            dnscomment = ", TCP";
+        if (conf->proxytype == PROXY_SOCKS5) {
+            ptype = "socks5://";
+            pserv = conf->proxysrv;
+            pport = conf->proxyport;
+        } else if (conf->proxytype == PROXY_HTTP) {
+            ptype = "http://";
+            pserv = conf->proxysrv;
+            pport = conf->proxyport;
         } else {
-            dnsenabled = "Enabled, ";
-            dnsserv = conf->dnssrv;
-            dnscomment = ", UDP";
+            ptype = "(direct)";
+            pserv = "";
+            pport = "";
         }
 
-        loglv(0, "Proxy Server:       %s:%s%s", conf->proxysrv, conf->proxyport,
-              ptype);
-        loglv(0, "DNS Redirection:    %s%s%s", dnsenabled, dnsserv, dnscomment);
-        loglv(0, "Verbose:            %s",
-              nsproxy_verbose_level__ > 0 ? "Yes" : "No");
+        if (conf->dnstype == DNS_REDIR_OFF) {
+            dnstype = "off";
+            dnsserv = "";
+        } else if (conf->dnstype == DNS_REDIR_TCP) {
+            dnstype = "tcp://";
+            dnsserv = conf->dnssrv;
+        } else {
+            dnstype = "udp://";
+            dnsserv = conf->dnssrv;
+        }
+
+        loglv(0, "Proxy Server:     %s%s%c%s", ptype, pserv, pcolon, pport);
+        loglv(0, "DNS Redirection:  %s%s", dnstype, dnsserv);
+        loglv(0, "Verbose:          %s",
+              nsproxy_verbose_level__ > 0 ? "yes" : "no");
     }
 
     /* write a byte after sigmask is set, indicate set up completely */
