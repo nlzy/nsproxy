@@ -17,7 +17,7 @@
 
 #include "common.h"
 #include "loop.h"
-#include "lwip/opt.h"
+#include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
 
@@ -344,7 +344,7 @@ static int recv_fd(int sock)
     return ret;
 }
 
-/* tasks in parent process is:
+/* tasks in parent process are:
    1. Receive TUN file descriptor from child process.
    2. Start event loop, the event loop will handle IP packets from TUN
       device and forward traffic to proxy server.
@@ -424,7 +424,7 @@ static int parent(int sk, struct loopconf *conf)
     return loop_run(loop);
 }
 
-/* tasks in child process is:
+/* tasks in child process are:
    1. Enter a new net_namespace.
    2. Create a TUN device and configure networking.
    3. Send TUN file descriptor to parent process.
