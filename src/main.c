@@ -284,6 +284,37 @@ failed_on_create:
              "DNS redirect may not work.");
 }
 
+static void configure_hosts_conf(void)
+{
+    int fd;
+    char path[] = "/tmp/nsproxy-hosts-conf-XXXXXX";
+    const char *content = "127.0.0.1 localhost\n";
+
+    if ((fd = mkstemp(path)) == -1)
+        goto failed_on_create;
+
+    if (chmod(path, 0644) == -1)
+        goto failed_after_create;
+
+    if (write(fd, content, strlen(content)) == -1)
+        goto failed_after_create;
+
+    if (mount(path, "/etc/hosts", NULL, MS_BIND | MS_RDONLY, NULL) ==
+        -1)
+        goto failed_after_create;
+
+    close(fd);
+    unlink(path);
+    return;
+
+failed_after_create:
+    close(fd);
+    unlink(path);
+failed_on_create:
+    loglv(0, "Warning: re-bind /etc/hosts failed. "
+             "DNS redirect may not work.");
+}
+
 /* send a file descriptor to sock
    must succeed, otherwise terminate this process */
 static void send_fd(int sock, int fd)
@@ -468,6 +499,7 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
 
     if (conf->dnstype != DNS_REDIR_OFF) {
         if (unshare_mount() == 0) {
+            configure_hosts_conf();
             configure_resolv_conf();
             configure_nsswitch_conf();
         }
