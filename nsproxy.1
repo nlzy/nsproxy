@@ -1,0 +1,78 @@
+.TH NSPROXY 1 "February 2026" "nsproxy" "User Commands"
+.SH NAME
+nsproxy \- unprivileged network namespace proxy
+.SH SYNOPSIS
+\fBnsproxy\fR \fB\-h\fR | \fB\-\-help\fR
+.br
+\fBnsproxy\fR [\fB\-H\fR] [\fB\-s\fR \fIserver\fR] [\fB\-p\fR \fIport\fR] [\fB\-d\fR \fIdns\fR] [\fB\-a\fR \fIuser:password\fR] [\fB\-v\fR|\fB\-q\fR] \fIcommand\fR [\fIargs...\fR]
+.SH DESCRIPTION
+\fBnsproxy\fR is a Linux-specific command-line tool that forces applications to use a specific SOCKS5 or HTTP proxy.
+.PP
+Unlike \fBtsocks\fR or \fBproxychains\fR, which use \fBLD_PRELOAD\fR to intercept library calls, \fBnsproxy\fR uses Linux network namespaces. It creates a \fBTUN\fR device in a fresh network namespace and connects it to a user-mode TCP/IP stack (lwIP). This allows it to work with statically linked applications and avoids many of the pitfalls of \fBLD_PRELOAD\fR-based solutions.
+.PP
+\fBnsproxy\fR does not require root privileges, as it leverages unprivileged user namespaces.
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Print a help message and exit.
+.TP
+.B \-H
+Use HTTP proxy instead of the default SOCKS5.
+.B Note:
+UDP is not supported when using an HTTP proxy. UDP packets will be dropped, and an ICMP port unreachable message will be returned.
+.TP
+.BI \-s " server"
+Proxy server address. Default is "127.0.0.1".
+.TP
+.BI \-p " port"
+Proxy server port. Default is "1080" for SOCKS5 and "8080" for HTTP.
+.TP
+.BI \-d " dns"
+DNS redirection strategy. Supported values:
+.RS
+.IP \fBoff\fR
+Do nothing with DNS; treat as normal UDP packets.
+.IP \fBtcp://\fR\fIserver_ip\fR
+Redirect DNS requests to the specified TCP nameserver.
+.IP \fBudp://\fR\fIserver_ip\fR
+Redirect DNS requests to the specified UDP nameserver.
+.RE
+.IP
+Default is "tcp://1.1.1.1".
+.TP
+.BI \-a " user:password"
+Proxy authentication (SOCKS5 or HTTP Basic Auth).
+.TP
+.B \-v
+Verbose mode. Increase verbosity with multiple \fB\-v\fR (e.g., \fB\-vv\fR or \fB\-vvv\fR).
+.TP
+.B \-q
+Quiet mode. Suppress output.
+.SH EXAMPLES
+Use SOCKS5 proxy:
+.IP
+\fBnsproxy curl http://example.com\fR
+.PP
+Use HTTP proxy:
+.IP
+\fBnsproxy -H curl http://example.com\fR
+.PP
+Specify a custom proxy server and port:
+.IP
+\fBnsproxy -s 192.168.1.100 -p 8888 curl http://example.com\fR
+.SH LIMITATIONS
+.IP \(bu 2
+All UIDs and GIDs except the current user's are mapped to the overflow UID/GID. This means programs like \fBsudo\fR or \fBsu\fR will not work.
+.IP \(bu 2
+It's unable to establish a connection to the inside from the outside. This means programs listening a port like \fBapache\fR or \fBnginx\fR will not work.
+.IP \(bu 2
+Connections to loopback addresses (\fB127.0.0.1\fR) refer to the inside of the namespace, not the host.
+.SH SEE ALSO
+.BR tsocks (1),
+.BR proxychains (1),
+.BR graftcp (1),
+.BR slirp4netns (1)
+.SH AUTHORS
+NaLan ZeYu <nalanzeyu@gmail.com>
+.SH LICENSE
+GPLv2+
