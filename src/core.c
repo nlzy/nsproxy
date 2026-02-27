@@ -81,7 +81,7 @@ static void udp_proxy_output(struct sk_ops *proxy, struct udp_pcb *pcb)
 }
 
 /* handle event occured in connection connected to proxy server */
-static void udp_conn_io_event(void *userp, unsigned int event)
+static void udp_proxy_io_event(void *userp, unsigned int event)
 {
     struct udp_pcb *pcb = userp;
 
@@ -162,7 +162,7 @@ void core_udp_new(struct udp_pcb *pcb)
             return;
         }
         if (conf->dnstype == DNS_REDIR_TCP) {
-            pcb->proxy = tcpdns_create(loop, &udp_conn_io_event, pcb);
+            pcb->proxy = tcpdns_create(loop, &udp_proxy_io_event, pcb);
             pcb->proxy->connect(pcb->proxy, conf->dnssrv, port);
             return;
         }
@@ -173,13 +173,13 @@ void core_udp_new(struct udp_pcb *pcb)
     }
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        pcb->proxy = socks_udp_create(loop, &udp_conn_io_event, pcb);
+        pcb->proxy = socks_udp_create(loop, &udp_proxy_io_event, pcb);
         pcb->proxy->connect(pcb->proxy, addr, port);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
         pcb->proxy = NULL;
     } else {
-        pcb->proxy = direct_udp_create(loop, &udp_conn_io_event, pcb);
+        pcb->proxy = direct_udp_create(loop, &udp_proxy_io_event, pcb);
         pcb->proxy->connect(pcb->proxy, addr, port);
     }
 }
@@ -253,7 +253,7 @@ static void tcp_proxy_output(struct sk_ops *proxy, struct tcp_pcb *pcb)
 }
 
 /* handle event occured in connection connected to proxy server */
-static void tcp_proxy_event(void *userp, unsigned int event)
+static void tcp_proxy_io_event(void *userp, unsigned int event)
 {
     struct tcp_pcb *pcb = userp;
 
@@ -355,11 +355,11 @@ void core_tcp_new(struct tcp_pcb *pcb)
     tcp_recv(pcb, &tcp_lwip_received);
 
     if (loop_conf(loop)->proxytype == PROXY_SOCKS5) {
-        pcb->proxy = socks_tcp_create(loop, &tcp_proxy_event, pcb);
+        pcb->proxy = socks_tcp_create(loop, &tcp_proxy_io_event, pcb);
     } else if (loop_conf(loop)->proxytype == PROXY_HTTP) {
-        pcb->proxy = http_tcp_create(loop, &tcp_proxy_event, pcb);
+        pcb->proxy = http_tcp_create(loop, &tcp_proxy_io_event, pcb);
     } else {
-        pcb->proxy = direct_tcp_create(loop, &tcp_proxy_event, pcb);
+        pcb->proxy = direct_tcp_create(loop, &tcp_proxy_io_event, pcb);
     }
 
     pcb->proxy->connect(pcb->proxy, ipaddr_ntoa(&pcb->local_ip),
