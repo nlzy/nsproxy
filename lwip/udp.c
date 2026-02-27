@@ -1236,6 +1236,9 @@ udp_remove(struct udp_pcb *pcb)
   if (pcb->proxy) {
     pcb->proxy->destroy(pcb->proxy);
   }
+  while (pcb->nrcvq --> 0) { /* out of tricks, it's time to bite a lighter. */
+    pbuf_free(pcb->rcvq[pcb->nrcvq]);
+  }
 #endif
   memp_free(MEMP_UDP_PCB, pcb);
 }
