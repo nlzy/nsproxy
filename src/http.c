@@ -121,7 +121,8 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
     loglv(3, "http_handshake_phase_2: receiving response");
 
-    if (event & EPOLLERR) {
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        loglv(0, "Proxy connection closed unexpectedly during HTTP handshake.");
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -138,6 +139,11 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         }
         return;
     }
+    if (nread == 0) {
+        loglv(0, "Proxy server closed unexpectedly during HTTP handshake.");
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
 
     p = strstr(self->buffer, "\r\n\r\n");
     s = p ? (p + strlen("\r\n\r\n") - (self->buffer + self->nbuffer)) : nread;
@@ -147,14 +153,16 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
         abort();
     }
-    self->nbuffer += nread;
+    self->nbuffer += s;
 
     /* handshake not finished */
     if (!p) {
-        /* failed, handshake not finished but connection lost or buffer full */
-        if (s == 0 || self->nbuffer == sizeof(self->buffer))
+        /* failed, handshake not finished but buffer full */
+        if (self->nbuffer == sizeof(self->buffer) - 1) {
+            loglv(0, "Proxy server returned a header that is too large "
+                     "during the handshake.");
             self->userev(self->userp, EPOLLERR);
-
+        }
         /* if not failed, wait for rest handshake message */
         return;
     }
