@@ -20,6 +20,13 @@ It has the following features:
  - No privilege required.
 
 
+BUILD
+----------
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+
 USAGE
 ----------
 
@@ -27,10 +34,13 @@ nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] <command>
 
 Examples:
   # Use socks5 proxy
-  nsproxy dig example.com A
+  nsproxy curl http://example.com
 
   # Use http proxy
-  nsproxy -H curl example.com
+  nsproxy -H curl http://example.com
+
+  # Specify a custom proxy server and port
+  nsproxy -s 192.168.1.100 -p 8888 curl http://example.com
 
 
 Options:
@@ -67,18 +77,14 @@ Options:
 LIMITATIONS
 ----------
 
-All {uid,gid} except the current user will be mapped to
-"/proc/sys/kernel/overflow{uid,gid}". That means file owners except the current
-user will be shown as 'nobody', and programs like sudo / su will not work.
+All UIDs and GIDs except the current user's are mapped to the overflow UID/GID.
+This means programs like sudo or su will not work.
 
-nsproxy will create a new network_namespace for proxied application, so the
-networking between inside and outside of the namespace is isolated. There's no
-route to the inside of the namespace. It's unable to establish a connection to
-the inside from the outside. In addition, abstract UNIX domain sockets are
-isolated too.
+It's unable to establish a connection to the inside from the outside. This means
+programs listening a port like apache or nginx will not work.
 
-Connections to loopback addresses will not be proxied, and those addresses are
-not referenced to the host, they are referenced to the inside of the namespace.
+Connections to loopback addresses (127.0.0.1) refer to the inside of the
+namespace, not the host.
 
 
 TODO
