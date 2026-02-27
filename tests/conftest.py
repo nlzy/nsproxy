@@ -20,6 +20,11 @@ PROXY_V2RAY_PATH = "v2ray"
 PROXY_V2RAY_NOAUTH_CONFIG = "tests/conf/v2ray_noauth.json"
 PROXY_V2RAY_AUTH_CONFIG = "tests/conf/v2ray_auth.json"
 
+# singbox Configuration
+PROXY_SINGBOX_PATH = "sing-box"
+PROXY_SINGBOX_NOAUTH_CONFIG = "tests/conf/singbox_noauth.json"
+PROXY_SINGBOX_AUTH_CONFIG = "tests/conf/singbox_auth.json"
+
 SOCKS_NOAUTH_PORT = 31080
 SOCKS_AUTH_PORT = 31081
 HTTP_NOAUTH_PORT = 38080
@@ -138,7 +143,11 @@ def udp_bi_transfer(nsproxy_runner, extra_args, data_size=1024):
         server_sock.close()
 
 
-@pytest.fixture(scope="module", params=["3proxy", "v2ray"], ids=["3proxy", "v2ray"])
+@pytest.fixture(
+    scope="module",
+    params=["3proxy", "v2ray", "singbox"],
+    ids=["3proxy", "v2ray", "singbox"],
+)
 def proxy_server(request):
     proxy_type = request.param
 
@@ -165,7 +174,7 @@ def proxy_server(request):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-    else:  # v2ray
+    elif proxy_type == "v2ray":
         # Check v2ray config files
         if not os.path.exists(PROXY_V2RAY_NOAUTH_CONFIG):
             pytest.fail(
@@ -185,6 +194,29 @@ def proxy_server(request):
         # Start v2ray auth
         proc_auth = subprocess.Popen(
             [PROXY_V2RAY_PATH, "run", "-c", PROXY_V2RAY_AUTH_CONFIG],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    else:  # singbox
+        # Check singbox config files
+        if not os.path.exists(PROXY_SINGBOX_NOAUTH_CONFIG):
+            pytest.fail(
+                f"singbox noauth config file not found at {PROXY_SINGBOX_NOAUTH_CONFIG}"
+            )
+        if not os.path.exists(PROXY_SINGBOX_AUTH_CONFIG):
+            pytest.fail(
+                f"singbox auth config file not found at {PROXY_SINGBOX_AUTH_CONFIG}"
+            )
+
+        # Start singbox noauth
+        proc_noauth = subprocess.Popen(
+            [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_NOAUTH_CONFIG],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # Start singbox auth
+        proc_auth = subprocess.Popen(
+            [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_AUTH_CONFIG],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )

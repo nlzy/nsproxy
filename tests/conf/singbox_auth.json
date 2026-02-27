@@ -1,0 +1,41 @@
+{
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-auth",
+      "listen": "127.0.0.1",
+      "listen_port": 31081,
+      "users": [
+        {
+          "username": "testuser",
+          "password": "testpass"
+        }
+      ]
+    },
+    {
+      "type": "http",
+      "tag": "http-auth",
+      "listen": "127.0.0.1",
+      "listen_port": 38081,
+      "users": [
+        {
+          "username": "testuser",
+          "password": "testpass"
+        }
+      ]
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "outbound": "direct"
+      }
+    ]
+  }
+}
