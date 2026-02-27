@@ -11,6 +11,25 @@
 
 #include "loop.h"
 
+/* socks handshake phases */
+#define PHASE_SEND_METHOD   1
+#define PHASE_RECV_METHOD   2
+#define PHASE_SEND_AUTH     3
+#define PHASE_RECV_AUTH     4
+#define PHASE_SEND_REQUEST  5
+#define PHASE_RECV_REPLY    6
+#define PHASE_FORWARDING    7
+
+static const char *phasestr[] = {
+    [PHASE_SEND_METHOD] = "PHASE_SEND_METHOD",
+    [PHASE_RECV_METHOD] = "PHASE_RECV_METHOD",
+    [PHASE_SEND_AUTH] = "PHASE_SEND_AUTH",
+    [PHASE_RECV_AUTH] = "PHASE_RECV_AUTH",
+    [PHASE_SEND_REQUEST] = "PHASE_SEND_REQUEST",
+    [PHASE_RECV_REPLY] = "PHASE_RECV_REPLY",
+    [PHASE_FORWARDING] = "PHASE_FORWARDING",
+};
+
 struct conn_socks {
     struct sk_ops ops;
     struct loopctx *loop;
@@ -25,6 +44,8 @@ struct conn_socks {
     int sfd; /* socket fd to proxy server */
     struct ep_poller io_poller;
     struct epoll_event io_poller_ev;
+
+    int phase;
 
     /* for handshake only */
     /* TODO: free these buffer after handshake finished */
@@ -197,252 +218,81 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
 
 /* epoll event callback used after handshake
    we don't care events after handshaked, just forward event to user */
-void socks_io_event(struct ep_poller *poller, unsigned int event)
+static void socks_fowarding_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *self =
         container_of(poller, struct conn_socks, io_poller);
     self->userev(self->userp, event);
 }
 
-/* epoll event callback
-   used of receiving socks handshake reply */
-void socks_handshake_phase_4(struct ep_poller *poller, unsigned int event)
+static void socks_handshake_output(struct conn_socks *self)
 {
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
-    struct socks5hdr hdr;
-    struct socks5addr ad;
-    ssize_t s, nread;
-    int pass; /* did handshake finished? */
-
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* use MSG_PEEK here, if some application layer data has been returned,
-       we can carefuly not to touch them
-    */
-    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
-                      sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK)) ==
-        -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("recv()");
-            abort();
-        }
-        /* */
-        return;
-    }
-
-    /* determine whether handshake finished, and boundary of handshake message
-     */
-    do {
-        ssize_t ret, offset = 0;
-
-        s = nread;
-        pass = 0;
-
-        ret = socks5_hdr_get(&hdr, self->buffer + offset,
-                             self->nbuffer + nread - offset);
-        if (ret == -1)
-            break;
-        offset += ret;
-
-        ret = socks5_addr_get(&ad, self->buffer + offset,
-                              self->nbuffer + nread - offset);
-        if (ret == -1)
-            break;
-        offset += ret;
-
-        s = offset - self->nbuffer;
-        pass = 1;
-    } while (0);
-
-    /* discard socks handshake reply part in socket buffer */
-    if ((nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0)) != s) {
-        fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
-        abort();
-    }
-    self->nbuffer += nread;
-
-    /* handshake not finished */
-    if (!pass) {
-        /* failed, handshake not finished but connection lost or buffer full */
-        if (s == 0 || self->nbuffer == sizeof(self->buffer))
-            self->userev(self->userp, EPOLLERR);
-
-        /* if not failed, wait for rest handshake message */
-        return;
-    }
-
-    if (hdr.ver != 5 || hdr.rsp != 0) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    loglv(1, "Connected to tcp:%s:%u", self->addr, (unsigned)self->port);
-
-    /* good, handshake finish, listen and forward epoll event for user */
-    self->io_poller_ev.events = EPOLLIN | EPOLLOUT;
-    self->io_poller.on_epoll_event = &socks_io_event;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-}
-
-/* epoll event callback
-   used of sending socks handshake request */
-void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
-    ssize_t nsent;
-
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* it's first called to this function, fill buffer */
-    if (self->nbuffer == 0) {
-        struct socks5hdr hdr = { .ver = 5, .cmd = SOCKS5_CMD_CONNECT };
-        struct socks5addr ad;
-        ssize_t ret;
-
-        strncpy(ad.addr, self->addr, sizeof(ad.addr) - 1);
-        ad.port = self->port;
-
-        ret = socks5_hdr_put(self->buffer + self->nbuffer,
-                             sizeof(self->buffer) - self->nbuffer, &hdr);
-        if (ret == -1) {
-            self->userev(self->userp, EPOLLERR);
-            return;
-        }
-        self->nbuffer += ret;
-
-        ret = socks5_addr_put(self->buffer + self->nbuffer,
-                              sizeof(self->buffer) - self->nbuffer, &ad);
-        if (ret == -1) {
-            self->userev(self->userp, EPOLLERR);
-            return;
-        }
-        self->nbuffer += ret;
-    }
-
-    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
-        -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("send()");
-            abort();
-        }
-        return; /* will handle in error handle */
-    }
-    self->nbuffer -= nsent;
-
-    /* partial write, wait next time to write rest */
-    if (self->nbuffer != 0) {
-        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
-        return;
-    }
-
-    /* good, request has been sent */
-    self->io_poller_ev.events = EPOLLIN;
-    self->io_poller.on_epoll_event = &socks_handshake_phase_4;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-}
-
-/* epoll event callback
-   used of receiving socks auth reply */
-void socks_handshake_phase_auth_2(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
-    ssize_t nread;
-
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
-                      sizeof(self->buffer) - self->nbuffer, 0)) == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("recv()");
-            abort();
-        }
-        return;
-    }
-    self->nbuffer += nread;
-
-    /* if nbuffer == 0, handshake failed because EOF
-       if nbuffer > 2, hanshake failed because server didn't follow RFC1929
-    */
-    if (self->nbuffer == 0 || self->nbuffer > 2) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* wait more data */
-    if (self->nbuffer != 2)
-        return;
-
-    if (self->buffer[0] != 1 || self->buffer[1] != 0) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* good, server replied correctly */
-    self->nbuffer = 0;
-    self->io_poller_ev.events = EPOLLOUT;
-    self->io_poller.on_epoll_event = &socks_handshake_phase_3;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-}
-
-/* epoll event callback
-   used of sending socks auth request */
-void socks_handshake_phase_auth_1(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
     struct loopconf *conf = loop_conf(self->loop);
     ssize_t nsent;
 
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* it's first called to this function, fill buffer */
+    /* it's first called to this phase, assembly buffer */
     if (self->nbuffer == 0) {
-        size_t ulen = strlen(conf->proxyuser);
-        size_t plen = strlen(conf->proxypass);
+        if (self->phase == PHASE_SEND_METHOD) {
+            if (sizeof(self->buffer) < 4) {
+                self->userev(self->userp, EPOLLERR);
+                return;
+            }
 
-        if (ulen > 255 || plen > 255) {
-            self->userev(self->userp, EPOLLERR);
-            return;
+            self->buffer[self->nbuffer++] = 5; /* ver */
+            if (conf->proxyuser[0] != '\0') {
+                self->buffer[self->nbuffer++] = 2; /* num methods */
+                self->buffer[self->nbuffer++] = 0; /* no auth */
+                self->buffer[self->nbuffer++] = 2; /* user/pass auth */
+            } else {
+                self->buffer[self->nbuffer++] = 1; /* num methods */
+                self->buffer[self->nbuffer++] = 0; /* no auth */
+            }
         }
+        if (self->phase == PHASE_SEND_AUTH) {
+            size_t ulen = strlen(conf->proxyuser);
+            size_t plen = strlen(conf->proxypass);
 
-        self->buffer[self->nbuffer++] = 1; /* ver */
-        self->buffer[self->nbuffer++] = (uint8_t)ulen;
-        memcpy(self->buffer + self->nbuffer, conf->proxyuser, ulen);
-        self->nbuffer += ulen;
-        self->buffer[self->nbuffer++] = (uint8_t)plen;
-        memcpy(self->buffer + self->nbuffer, conf->proxypass, plen);
-        self->nbuffer += plen;
+            if (ulen > 64 || plen > 64) {
+                self->userev(self->userp, EPOLLERR);
+                return;
+            }
+
+            self->buffer[self->nbuffer++] = 1; /* ver */
+            self->buffer[self->nbuffer++] = (uint8_t)ulen;
+            memcpy(self->buffer + self->nbuffer, conf->proxyuser, ulen);
+            self->nbuffer += ulen;
+            self->buffer[self->nbuffer++] = (uint8_t)plen;
+            memcpy(self->buffer + self->nbuffer, conf->proxypass, plen);
+            self->nbuffer += plen;
+        }
+        if (self->phase == PHASE_SEND_REQUEST) {
+            struct socks5hdr hdr = { .ver = 5, .cmd = SOCKS5_CMD_CONNECT };
+            struct socks5addr ad;
+            ssize_t ret;
+
+            strncpy(ad.addr, self->addr, sizeof(ad.addr) - 1);
+            ad.port = self->port;
+
+            ret = socks5_hdr_put(self->buffer + self->nbuffer,
+                                 sizeof(self->buffer) - self->nbuffer, &hdr);
+            if (ret == -1) {
+                self->userev(self->userp, EPOLLERR);
+                return;
+            }
+            self->nbuffer += ret;
+
+            ret = socks5_addr_put(self->buffer + self->nbuffer,
+                                  sizeof(self->buffer) - self->nbuffer, &ad);
+            if (ret == -1) {
+                self->userev(self->userp, EPOLLERR);
+                return;
+            }
+            self->nbuffer += ret;
+        }
     }
 
-    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
-        -1) {
+    nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
+    if (nsent == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
             abort();
@@ -451,15 +301,19 @@ void socks_handshake_phase_auth_1(struct ep_poller *poller, unsigned int event)
     }
     self->nbuffer -= nsent;
 
-    /* partial write, wait next time to write rest */
     if (self->nbuffer != 0) {
+        /* partial write, wait next time to write rest */
         memmove(self->buffer, self->buffer + nsent, self->nbuffer);
         return;
     }
 
-    /* good, auth request has been sent */
+    switch (self->phase) {
+        case PHASE_SEND_METHOD:  self->phase = PHASE_RECV_METHOD; break;
+        case PHASE_SEND_AUTH:    self->phase = PHASE_RECV_AUTH;   break;
+        case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
+    }
+
     self->io_poller_ev.events = EPOLLIN;
-    self->io_poller.on_epoll_event = &socks_handshake_phase_auth_2;
     if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
                   &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
@@ -467,123 +321,194 @@ void socks_handshake_phase_auth_1(struct ep_poller *poller, unsigned int event)
     }
 }
 
-/* epoll event callback
-   used of receiving socks handshake method */
-void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
+static void socks_handshake_input(struct conn_socks *self)
 {
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
     ssize_t nread;
 
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
-                      sizeof(self->buffer) - self->nbuffer, 0)) == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("recv()");
-            abort();
+    if (self->phase == PHASE_RECV_METHOD) {
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
+                     sizeof(self->buffer) - self->nbuffer, 0);
+        if (nread == -1) {
+            if (!is_ignored_skerr(errno)) {
+                perror("recv()");
+                abort();
+            }
+            return;
         }
-        return;
-    }
-    self->nbuffer += nread;
+        self->nbuffer += nread;
 
-    /* if nbuffer == 0, handshake failed because EOF
-       if nbuffer > 2, hanshake failed because server didn't follow RFC1928
-    */
-    if (self->nbuffer == 0 || self->nbuffer > 2) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* wait more data */
-    if (self->nbuffer != 2)
-        return;
-
-    if (self->buffer[0] != 5) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    if (self->buffer[1] == 2) {
-        /* proceed to auth */
-        self->nbuffer = 0;
-        self->io_poller_ev.events = EPOLLOUT;
-        self->io_poller.on_epoll_event = &socks_handshake_phase_auth_1;
-    } else if (self->buffer[1] == 0) {
-        /* no auth */
-        self->nbuffer = 0;
-        self->io_poller_ev.events = EPOLLOUT;
-        self->io_poller.on_epoll_event = &socks_handshake_phase_3;
-    } else {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
-}
-
-/* epoll event callback
-   used of sending socks handshake method */
-void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
-    struct loopconf *conf = loop_conf(self->loop);
-    ssize_t nsent;
-
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
-
-    /* it's first called to this function, assembly request */
-    if (self->nbuffer == 0) {
-        if (sizeof(self->buffer) < 4) {
+        /* if nbuffer == 0, handshake failed because EOF
+           if nbuffer > 2, hanshake failed because server didn't follow RFC1928
+        */
+        if (self->nbuffer == 0 || self->nbuffer > 2) {
             self->userev(self->userp, EPOLLERR);
             return;
         }
 
-        self->buffer[self->nbuffer++] = 5; /* ver */
-        if (conf->proxyuser[0] != '\0') {
-            self->buffer[self->nbuffer++] = 2; /* num methods */
-            self->buffer[self->nbuffer++] = 0; /* no auth */
-            self->buffer[self->nbuffer++] = 2; /* user/pass auth */
+        /* wait more data */
+        if (self->nbuffer != 2)
+            return;
+
+        /* no a correct protocol header */
+        if (self->buffer[0] != 5) {
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        if (self->buffer[1] == 2) {
+            /* proceed to auth */
+            self->phase = PHASE_SEND_AUTH;
+        } else if (self->buffer[1] == 0) {
+            /* no auth */
+            self->phase = PHASE_SEND_REQUEST;
         } else {
-            self->buffer[self->nbuffer++] = 1; /* num methods */
-            self->buffer[self->nbuffer++] = 0; /* no auth */
+            self->userev(self->userp, EPOLLERR);
+            return;
         }
     }
 
-    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
-        -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("send()");
+    if (self->phase == PHASE_RECV_AUTH) {
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
+                     sizeof(self->buffer) - self->nbuffer, 0);
+        if (nread == -1) {
+            if (!is_ignored_skerr(errno)) {
+                perror("recv()");
+                abort();
+            }
+            return;
+        }
+        self->nbuffer += nread;
+
+        /* if nbuffer == 0, handshake failed because EOF
+           if nbuffer > 2, hanshake failed because server didn't follow RFC1929
+        */
+        if (self->nbuffer == 0 || self->nbuffer > 2) {
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        /* wait more data */
+        if (self->nbuffer != 2)
+            return;
+
+        if (self->buffer[0] != 1 || self->buffer[1] != 0) {
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        /* good, server replied correctly */
+        self->phase = PHASE_SEND_REQUEST;
+    }
+
+
+    if (self->phase == PHASE_RECV_REPLY) {
+        struct socks5hdr hdr;
+        struct socks5addr ad;
+        ssize_t s;
+        int pass; /* did handshake finished? */
+
+        /* use MSG_PEEK here, if some application layer data has been returned,
+           we can carefuly not to touch them */
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
+                     sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
+        if (nread == -1) {
+            if (!is_ignored_skerr(errno)) {
+                perror("recv()");
+                abort();
+            }
+            return;
+        }
+
+        /* determine whether handshake finished, and boundary of handshake
+           message */
+        do {
+            ssize_t ret, offset = 0;
+
+            s = nread;
+            pass = 0;
+
+            ret = socks5_hdr_get(&hdr, self->buffer + offset,
+                                self->nbuffer + nread - offset);
+            if (ret == -1)
+                break;
+            offset += ret;
+
+            ret = socks5_addr_get(&ad, self->buffer + offset,
+                                self->nbuffer + nread - offset);
+            if (ret == -1)
+                break;
+            offset += ret;
+
+            s = offset - self->nbuffer;
+            pass = 1;
+        } while (0);
+
+        /* discard socks handshake reply part in socket buffer */
+        nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0);
+        if (nread != s) {
+            fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
             abort();
         }
-        return;
-    }
-    self->nbuffer -= nsent;
+        self->nbuffer += nread;
 
-    /* partial write, wait next time to write rest */
-    if (self->nbuffer != 0) {
-        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
-        return;
+        /* handshake not finished */
+        if (!pass) {
+            /* failed, handshake not finished but connection lost or buffer
+               full */
+            if (s == 0 || self->nbuffer == sizeof(self->buffer))
+                self->userev(self->userp, EPOLLERR);
+
+            /* if not failed, wait for rest handshake message */
+            return;
+        }
+
+        if (hdr.ver != 5 || hdr.rsp != 0) {
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        self->phase = PHASE_FORWARDING;
+        loglv(1, "Connected tcp:%s:%u", self->addr, (unsigned)self->port);
     }
 
-    /* good, method has been send */
-    self->io_poller_ev.events = EPOLLIN;
-    self->io_poller.on_epoll_event = &socks_handshake_phase_2;
+    /* when control flow reach here, it should finish a step of input phase */
+    assert(self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH
+           || PHASE_FORWARDING);
+
+    /* clear input buffer */
+    self->nbuffer = 0;
+
+    if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
+        self->io_poller_ev.events = EPOLLOUT;
+    } else if (self->phase == PHASE_FORWARDING) {
+        /* handshake finish, listen and forward epoll event for user */
+        self->io_poller_ev.events = EPOLLIN | EPOLLOUT;
+        self->io_poller.on_epoll_event = &socks_fowarding_event;
+    }
     if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
                   &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
         abort();
+    }
+}
+
+static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *self =
+        container_of(poller, struct conn_socks, io_poller);
+
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    loglv(3, "Phase [%s]", phasestr[self->phase]);
+
+    if (self->phase == PHASE_SEND_METHOD || self->phase == PHASE_SEND_AUTH ||
+        self->phase == PHASE_SEND_REQUEST) {
+        socks_handshake_output(self);
+    } else {
+        socks_handshake_input(self);
     }
 }
 
@@ -632,11 +557,13 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     if (self->isudp) {
         /* it's no need to handshake in udp, start forward packet now */
+        self->phase = PHASE_FORWARDING;
         loglv(1, "Forwarding udp:%s:%u", addr, (unsigned)port);
-        self->io_poller.on_epoll_event = &socks_io_event;
+        self->io_poller.on_epoll_event = &socks_fowarding_event;
         self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
     } else {
-        self->io_poller.on_epoll_event = &socks_handshake_phase_1;
+        self->phase = PHASE_SEND_METHOD;
+        self->io_poller.on_epoll_event = &socks_handshake_event;
         self->io_poller_ev.events = EPOLLOUT;
     }
 
@@ -659,7 +586,7 @@ static int socks_shutdown(struct sk_ops *conn, int how)
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     int ret;
 
-    if (self->io_poller.on_epoll_event != &socks_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -ENOTCONN;
     }
 
@@ -681,7 +608,7 @@ static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     unsigned int old = self->io_poller_ev.events;
 
-    if (self->io_poller.on_epoll_event != &socks_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return;
     }
 
@@ -711,7 +638,7 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
     ssize_t nsent;
 
     /* handshake is not finished */
-    if (self->io_poller.on_epoll_event != &socks_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
@@ -766,7 +693,7 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
     ssize_t nread;
 
     /* handshake is not finished */
-    if (self->io_poller.on_epoll_event != &socks_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
@@ -827,12 +754,14 @@ static void socks_destroy(struct sk_ops *conn)
         }
     }
 
-    if (self->io_poller.on_epoll_event == &socks_io_event) {
+    if (self->phase == PHASE_FORWARDING) {
         loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
-    } else if (self->io_poller.on_epoll_event == &socks_handshake_phase_4) {
-        loglv(1, "Failed to connect %s:%u", self->addr, (unsigned)self->port);
+    } else if (self->phase == PHASE_RECV_REPLY) {
+        loglv(1, "Proxy server failed to connect %s:%u",
+              self->addr, (unsigned)self->port);
     } else {
-        loglv(0, "FAILED to connect proxy server.");
+        loglv(0, "FAILED to connect proxy server at [%s].",
+              phasestr[self->phase]);
     }
 
     if (close(self->sfd) == -1) {
@@ -861,6 +790,8 @@ static struct conn_socks *socks_create_internal(void)
     self->ops.send = &socks_send;
     self->ops.recv = &socks_recv;
     self->ops.destroy = &socks_destroy;
+
+    self->sfd = -1;
 
     return self;
 }
