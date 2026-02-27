@@ -293,13 +293,16 @@ static void tcp_proxy_event(void *userp, unsigned int event)
 */
 static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
-    struct sk_ops *proxy = pcb->proxy;
-
+    /* remove ackeded data from send queue */
     pcb->sndq = pbuf_free_header(pcb->sndq, len);
 
+    /* ask proxy server for more data, if we have space in queue */
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
-            tcp_proxy_input(proxy, pcb);
+            /* proxy may closed before final ACK recived from application
+               if so, we can't try reciving more data from proxy */
+            if (pcb->proxy) 
+                tcp_proxy_input(pcb->proxy, pcb);
 
     return ERR_OK;
 }
