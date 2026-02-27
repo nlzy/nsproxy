@@ -12,13 +12,15 @@
 #include "loop.h"
 
 /* socks handshake phases */
-#define PHASE_SEND_METHOD   1
-#define PHASE_RECV_METHOD   2
-#define PHASE_SEND_AUTH     3
-#define PHASE_RECV_AUTH     4
-#define PHASE_SEND_REQUEST  5
-#define PHASE_RECV_REPLY    6
-#define PHASE_FORWARDING    7
+enum {
+    PHASE_SEND_METHOD = 1,
+    PHASE_RECV_METHOD,
+    PHASE_SEND_AUTH,
+    PHASE_RECV_AUTH,
+    PHASE_SEND_REQUEST,
+    PHASE_RECV_REPLY,
+    PHASE_FORWARDING,
+};
 
 static const char *phasestr[] = {
     [PHASE_SEND_METHOD] = "PHASE_SEND_METHOD",
@@ -43,6 +45,12 @@ static const char *rspstr[] = {
     [9] = "Unassigned",
 };
 
+enum {
+    TCP_FORWARD,   /* TCP connection forwarding */
+    UDP_FORWARD,   /* UDP packet forwarding (client side) */
+    UDP_ASSOCIATE,   /* UDP association control connection */
+};
+
 struct conn_socks {
     struct sk_ops ops;
     struct loopctx *loop;
@@ -50,11 +58,16 @@ struct conn_socks {
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
-    int isudp;
-    char *addr; /* for proixed connection, not proxy server */
+    char *addr; /* for proxied connection, not proxy server */
     uint16_t port;
 
-    int sfd; /* socket fd to proxy server */
+    /* - TCP_FORWARD: connected to proxy, for both handshake and data foward
+     * - UDP_FORWARD: connected to relay server, for UDP foward only
+     * - UDP_ASSOCIATE: connected to proxy, for UDP associate handshake only
+     */
+    int type;
+
+    int sfd;
     struct ep_poller poller;
 
     int phase;
@@ -524,7 +537,7 @@ static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
 
     loglv(3, "socks_handshake_event: handshaking with %s:%u/%s [%s]",
              self->addr, (unsigned)self->port,
-             self->isudp ? "udp" : "tcp", phasestr[self->phase]);
+             self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 
     if (event & (EPOLLERR | EPOLLHUP)) {
         self->userev(self->userp, EPOLLERR);
@@ -548,11 +561,11 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     struct loopconf *conf = loop_conf(self->loop);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
-    int sktype = self->isudp ? SOCK_DGRAM : SOCK_STREAM;
+    int sktype = self->type == UDP_FORWARD ? SOCK_DGRAM : SOCK_STREAM;
     int const enable = 1;
 
     loglv(3, "socks_connect: connecting %s:%u/%s",
-             addr, (unsigned)port, self->isudp ? "udp" : "tcp");
+             addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     if (strlen(addr) >= 128)
         return -1;
@@ -568,7 +581,7 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         abort();
     }
 
-    if (!self->isudp) {
+    if (self->type != UDP_FORWARD) {
         if (setsockopt(self->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
                        sizeof(int)) == -1) {
             perror("setsockopt()");
@@ -585,7 +598,7 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     freeaddrinfo(result);
 
-    if (self->isudp) {
+    if (self->type == UDP_FORWARD) {
         /* it's no need to handshake in udp, start forward packet now */
         self->phase = PHASE_FORWARDING;
         loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
@@ -611,8 +624,8 @@ static int socks_shutdown(struct sk_ops *conn, int how)
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     int ret;
 
-    loglv(3, "socks_shutdown: shutting down %s:%u/%s",
-             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+    loglv(3, "socks_shutdown: shutting down %s:%u/%s", self->addr,
+             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     if (self->phase != PHASE_FORWARDING) {
         return -ENOTCONN;
@@ -666,7 +679,7 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         return -EAGAIN;
     }
 
-    if (self->isudp) {
+    if (self->type == UDP_FORWARD) {
         struct socks5hdr hdr = { 0 };
         struct socks5addr addr;
         size_t offset = 0;
@@ -704,8 +717,8 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-    loglv(2, "--- socks %zd bytes. %s:%u/%s", nsent,
-             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+    loglv(2, "--- socks %zd bytes. %s:%u/%s", nsent, self->addr,
+             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     return nsent;
 }
@@ -731,11 +744,11 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-    loglv(2, "+++ socks %zd bytes. %s:%u/%s", nread,
-             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+    loglv(2, "+++ socks %zd bytes. %s:%u/%s", nread, self->addr,
+             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     /* is udp, parse and remove header */
-    if (self->isudp) {
+    if (self->type == UDP_FORWARD) {
         struct socks5hdr hdr;
         struct socks5addr ad;
         ssize_t ret, offset = 0;
@@ -765,8 +778,8 @@ static void socks_destroy(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
 
-    loglv(3, "socks_destroy: destroying %s:%u/%s",
-             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+    loglv(3, "socks_destroy: destroying %s:%u/%s", self->addr,
+             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
@@ -829,7 +842,7 @@ struct sk_ops *socks_tcp_create(struct loopctx *loop,
 {
     struct conn_socks *self = socks_create_internal();
 
-    self->isudp = 0;
+    self->type = TCP_FORWARD;
     self->loop = loop;
     self->userev = userev;
     self->userp = userp;
@@ -844,7 +857,7 @@ struct sk_ops *socks_udp_create(struct loopctx *loop,
 {
     struct conn_socks *self = socks_create_internal();
 
-    self->isudp = 1;
+    self->type = UDP_FORWARD;
     self->loop = loop;
     self->userev = userev;
     self->userp = userp;
