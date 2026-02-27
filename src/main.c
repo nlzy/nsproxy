@@ -24,7 +24,7 @@ int nsproxy_verbose_level__ = 0;
 static void print_help(void)
 {
     printf("usage: \n"
-           "  nsproxy [-h] [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
+           "  nsproxy [-h] [-H] [-s <server>] [-p <port>] [-d <dns>] [-a <user:password>] [-v|-q] "
            "<command>\n"
            "options:\n"
            "  -h\n"
@@ -43,6 +43,8 @@ static void print_help(void)
            "        Redirect DNS requests to specified TCP nameserver.\n"
            "      -d udp://<nameserver_ipaddress>\n"
            "        Redirect DNS requests to specified UDP nameserver.\n"
+           "  -a <user:password>\n"
+           "    Proxy authentication (HTTP Basic Auth only).\n"
            "  -v\n"
            "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
            "  -q\n"
@@ -520,7 +522,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hHDs:p:d:qv")) != -1) {
+    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv")) != -1) {
         switch (opt) {
         case 'h':
             print_help();
@@ -540,6 +542,24 @@ int main(int argc, char *argv[])
         case 'd':
             dns = optarg;
             break;
+        case 'a': {
+            char *sep = strchr(optarg, ':');
+            if (!sep) {
+                fprintf(stderr, "nsproxy: invalid auth format, expected user:password\n");
+                exit(EXIT_FAILURE);
+            }
+            size_t user_len = sep - optarg;
+            size_t pass_len = strlen(sep + 1);
+            if (user_len >= sizeof(conf.proxyuser) || pass_len >= sizeof(conf.proxypass)) {
+                fprintf(stderr, "nsproxy: username or password too long\n");
+                exit(EXIT_FAILURE);
+            }
+            memcpy(conf.proxyuser, optarg, user_len);
+            conf.proxyuser[user_len] = '\0';
+            memcpy(conf.proxypass, sep + 1, pass_len);
+            conf.proxypass[pass_len] = '\0';
+            break;
+        }
         case 'v':
             nsproxy_verbose_level__++;
             break;

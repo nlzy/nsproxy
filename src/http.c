@@ -9,6 +9,76 @@
 
 #include "loop.h"
 
+/* Base64 encoding table */
+static const char base64_chars[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* Base64 encode function
+   Returns the number of bytes written to output, or -1 on error
+*/
+static int base64_encode(const char *input, size_t len,
+                         char *output, size_t outlen)
+{
+    size_t i, j;
+    size_t n, k;
+    unsigned char a3[3];
+    unsigned char a4[4];
+
+    if (outlen < ((len + 2) / 3) * 4 + 1)
+        return -1;
+
+    for (i = 0, j = 0; i < len;) {
+        n = 0;
+        for (k = 0; k < 3 && i < len; k++) {
+            a3[k] = input[i++];
+            n++;
+        }
+
+        a4[0] = (a3[0] & 0xfc) >> 2;
+        a4[1] = ((a3[0] & 0x03) << 4) | ((n > 1 ? a3[1] : 0) >> 4);
+        a4[2] = n > 1 ? (((a3[1] & 0x0f) << 2) | ((n > 2 ? a3[2] : 0) >> 6)) : 0;
+        a4[3] = n > 2 ? (a3[2] & 0x3f) : 0;
+
+        output[j++] = base64_chars[a4[0]];
+        output[j++] = base64_chars[a4[1]];
+        output[j++] = n > 1 ? base64_chars[a4[2]] : '=';
+        output[j++] = n > 2 ? base64_chars[a4[3]] : '=';
+    }
+
+    output[j] = '\0';
+    return (int)j;
+}
+
+/* Build Proxy-Authorization header with Basic auth
+   Returns allocated string (must be freed by caller), or NULL on error
+*/
+static char *build_auth_header(const char *user, const char *pass)
+{
+    char credentials[192];
+    char b64[256];
+    char *header;
+    size_t header_len;
+    int cred_len, b64_len;
+
+    cred_len = snprintf(credentials, sizeof(credentials), "%s:%s", user, pass);
+    if (cred_len < 0 || (size_t)cred_len >= sizeof(credentials))
+        return NULL;
+
+    b64_len = base64_encode(credentials, cred_len, b64, sizeof(b64));
+    if (b64_len < 0)
+        return NULL;
+
+    header_len = strlen("Proxy-Authorization: Basic \r\n") + b64_len + 1;
+    header = malloc(header_len);
+    if (!header) {
+        fprintf(stderr, "Out of Memory.\n");
+        abort();
+    }
+
+    snprintf(header, header_len, "Proxy-Authorization: Basic %s\r\n", b64);
+    return header;
+}
+
 struct conn_http {
     struct sk_ops ops;
     struct loopctx *loop;
@@ -27,6 +97,8 @@ struct conn_http {
     /* TODO: free these buffer after handshake finished */
     char buffer[512];
     ssize_t nbuffer;
+
+    char *auth_header; /* Proxy-Authorization header (malloc'd) */
 };
 
 /* epoll event callback used after handshake
@@ -122,9 +194,16 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 
     /* it's first called to this function, assembly request */
     if (!self->nbuffer) {
-        self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
-                                 "CONNECT %s:%u HTTP/1.1\r\n\r\n", self->addr,
-                                 (unsigned int)self->port);
+        if (self->auth_header) {
+            self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
+                                     "CONNECT %s:%u HTTP/1.1\r\n%s\r\n",
+                                     self->addr, (unsigned int)self->port,
+                                     self->auth_header);
+        } else {
+            self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
+                                     "CONNECT %s:%u HTTP/1.1\r\n\r\n",
+                                     self->addr, (unsigned int)self->port);
+        }
     }
 
     if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
@@ -193,6 +272,11 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     }
 
     freeaddrinfo(result);
+
+    /* build auth header if credentials provided */
+    if (conf->proxyuser[0] != '\0') {
+        self->auth_header = build_auth_header(conf->proxyuser, conf->proxypass);
+    }
 
     /* good, start handshake */
     self->io_poller_ev.events = EPOLLOUT;
@@ -340,6 +424,7 @@ static void http_destroy(struct sk_ops *conn)
     }
 
     free(self->addr);
+    free(self->auth_header);
 
     free(self);
 }

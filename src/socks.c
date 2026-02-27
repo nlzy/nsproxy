@@ -427,10 +427,13 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
             self->userev(self->userp, EPOLLERR);
             return;
         }
-        /* current only support no auth */
+        /* current only support no auth
+         * TODO: SOCKS5 username/password authentication (RFC 1929)
+         * proxyuser/proxypass fields are reserved in loopconf for future use
+         */
         self->buffer[self->nbuffer++] = 5; /* ver */
         self->buffer[self->nbuffer++] = 1; /* num */
-        self->buffer[self->nbuffer++] = 0; /* no auth */
+        self->buffer[self->nbuffer++] = 0; /* no auth (0x02 for user/pass) */
     }
 
     if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
