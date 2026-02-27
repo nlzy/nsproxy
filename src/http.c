@@ -90,8 +90,7 @@ struct conn_http {
     uint16_t port;
 
     int sfd; /* socket fd to proxy server */
-    struct ep_poller io_poller;
-    struct epoll_event io_poller_ev;
+    struct ep_poller poller;
 
     /* for handshake only */
     /* TODO: free these buffer after handshake finished */
@@ -105,7 +104,7 @@ struct conn_http {
    we don't care events after handshaked, just forward event to user */
 static void http_io_event(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
+    struct conn_http *self = container_of(poller, struct conn_http, poller);
     self->userev(self->userp, event);
 }
 
@@ -113,7 +112,7 @@ static void http_io_event(struct ep_poller *poller, unsigned int event)
    used of receiving http response */
 static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
+    struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nread;
     char *p; /* pointer to end of HTTP response, NULL if response not ended  */
     ssize_t s; /* how many bytes belongs HTTP response in this read */
@@ -171,20 +170,15 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     loglv(1, "Connected to tcp:%s:%u", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
-    self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
-    self->io_poller.on_epoll_event = &http_io_event;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN,
+                    &http_io_event);
 }
 
 /* epoll event callback
    used of sending http request */
 static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
-    struct conn_http *self = container_of(poller, struct conn_http, io_poller);
+    struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nsent;
 
     if (event & EPOLLERR) {
@@ -223,13 +217,8 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     }
 
     /* good, http request has been send */
-    self->io_poller_ev.events = EPOLLIN;
-    self->io_poller.on_epoll_event = &http_handshake_phase_2;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN,
+                    &http_handshake_phase_2);
 }
 
 /* impl for struct sk_ops :: connect
@@ -279,13 +268,9 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     }
 
     /* good, start handshake */
-    self->io_poller_ev.events = EPOLLOUT;
-    self->io_poller.on_epoll_event = &http_handshake_phase_1;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_ADD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_init(&self->poller, self->loop, self->sfd);
+    loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT,
+                    &http_handshake_phase_1);
 
     self->addr = strdup(addr);
     self->port = port;
@@ -299,7 +284,7 @@ static int http_shutdown(struct sk_ops *conn, int how)
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     int ret;
 
-    if (self->io_poller.on_epoll_event != &http_io_event) {
+    if (self->poller.on_event != &http_io_event) {
         return -ENOTCONN;
     }
 
@@ -319,24 +304,20 @@ static int http_shutdown(struct sk_ops *conn, int how)
 static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    unsigned int old = self->io_poller_ev.events;
+    unsigned int new_events = self->poller.events;
 
-    if (self->io_poller.on_epoll_event != &http_io_event) {
+    if (self->poller.on_event != &http_io_event) {
         return;
     }
 
     if (enable) {
-        self->io_poller_ev.events |= event;
+        new_events |= event;
     } else {
-        self->io_poller_ev.events &= ~event;
+        new_events &= ~event;
     }
 
-    if (old != self->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                      &self->io_poller_ev) == -1) {
-            perror("epoll_ctl()");
-            abort();
-        }
+    if (new_events != self->poller.events) {
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, new_events, NULL);
     }
 }
 
@@ -347,7 +328,7 @@ static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
     ssize_t nsent;
 
     /* handshake is not finished */
-    if (self->io_poller.on_epoll_event != &http_io_event) {
+    if (self->poller.on_event != &http_io_event) {
         return -EAGAIN;
     }
 
@@ -374,7 +355,7 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
     ssize_t nread;
 
     /* handshake is not finished */
-    if (self->io_poller.on_epoll_event != &http_io_event) {
+    if (self->poller.on_event != &http_io_event) {
         return -EAGAIN;
     }
 
@@ -399,11 +380,7 @@ static void http_destroy(struct sk_ops *conn)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
 
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_DEL, self->sfd, NULL) ==
-        -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {
@@ -412,7 +389,7 @@ static void http_destroy(struct sk_ops *conn)
         }
     }
 
-    if (self->io_poller.on_epoll_event == &http_io_event) {
+    if (self->poller.on_event == &http_io_event) {
         loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
     } else {
         loglv(0, "FAILED to connect to proxy server.");
@@ -452,7 +429,6 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     self->loop = loop;
     self->userev = userev;
     self->userp = userp;
-    self->io_poller_ev.data.ptr = &self->io_poller;
 
     return &self->ops;
 }

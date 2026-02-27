@@ -22,15 +22,14 @@ struct conn_direct {
     uint16_t port;
 
     int sfd;
-    struct ep_poller io_poller;
-    struct epoll_event io_poller_ev;
+    struct ep_poller poller;
 };
 
 /* epoll event callback, just forward event to user */
 static void direct_io_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_direct *self =
-        container_of(poller, struct conn_direct, io_poller);
+        container_of(poller, struct conn_direct, poller);
     self->userev(self->userp, event);
 }
 
@@ -78,14 +77,9 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     freeaddrinfo(result);
 
-    self->io_poller.on_epoll_event = &direct_io_event;
-    self->io_poller_ev.events = EPOLLIN | EPOLLOUT;
-    self->io_poller_ev.data.ptr = &self->io_poller;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_ADD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_init(&self->poller, self->loop, self->sfd);
+    loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLIN | EPOLLOUT,
+                    &direct_io_event);
 
     self->addr = strdup(addr);
     self->port = port;
@@ -115,20 +109,16 @@ static int direct_shutdown(struct sk_ops *conn, int how)
 static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-    unsigned int old = self->io_poller_ev.events;
+    unsigned int new_events = self->poller.events;
 
     if (enable) {
-        self->io_poller_ev.events |= event;
+        new_events |= event;
     } else {
-        self->io_poller_ev.events &= ~event;
+        new_events &= ~event;
     }
 
-    if (old != self->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                      &self->io_poller_ev) == -1) {
-            perror("epoll_ctl()");
-            abort();
-        }
+    if (new_events != self->poller.events) {
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, new_events, NULL);
     }
 }
 
@@ -181,11 +171,7 @@ static void direct_destroy(struct sk_ops *conn)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
 
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_DEL, self->sfd, NULL) ==
-        -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {

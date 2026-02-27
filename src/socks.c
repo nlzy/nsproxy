@@ -42,8 +42,7 @@ struct conn_socks {
     uint16_t port;
 
     int sfd; /* socket fd to proxy server */
-    struct ep_poller io_poller;
-    struct epoll_event io_poller_ev;
+    struct ep_poller poller;
 
     int phase;
 
@@ -221,7 +220,7 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
 static void socks_fowarding_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
+        container_of(poller, struct conn_socks, poller);
     self->userev(self->userp, event);
 }
 
@@ -313,12 +312,7 @@ static void socks_handshake_output(struct conn_socks *self)
         case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
     }
 
-    self->io_poller_ev.events = EPOLLIN;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN, NULL);
 }
 
 static void socks_handshake_input(struct conn_socks *self)
@@ -479,23 +473,18 @@ static void socks_handshake_input(struct conn_socks *self)
     self->nbuffer = 0;
 
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
-        self->io_poller_ev.events = EPOLLOUT;
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT, NULL);
     } else if (self->phase == PHASE_FORWARDING) {
         /* handshake finish, listen and forward epoll event for user */
-        self->io_poller_ev.events = EPOLLIN | EPOLLOUT;
-        self->io_poller.on_epoll_event = &socks_fowarding_event;
-    }
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT,
+                        &socks_fowarding_event);
     }
 }
 
 static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *self =
-        container_of(poller, struct conn_socks, io_poller);
+        container_of(poller, struct conn_socks, poller);
 
     if (event & (EPOLLERR | EPOLLHUP)) {
         self->userev(self->userp, EPOLLERR);
@@ -559,19 +548,14 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         /* it's no need to handshake in udp, start forward packet now */
         self->phase = PHASE_FORWARDING;
         loglv(1, "Forwarding udp:%s:%u", addr, (unsigned)port);
-        self->io_poller.on_epoll_event = &socks_fowarding_event;
-        self->io_poller_ev.events = EPOLLOUT | EPOLLIN;
+        loop_poller_init(&self->poller, self->loop, self->sfd);
+        loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN,
+                        &socks_fowarding_event);
     } else {
         self->phase = PHASE_SEND_METHOD;
-        self->io_poller.on_epoll_event = &socks_handshake_event;
-        self->io_poller_ev.events = EPOLLOUT;
-    }
-
-    self->io_poller_ev.data.ptr = &self->io_poller;
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_ADD, self->sfd,
-                  &self->io_poller_ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
+        loop_poller_init(&self->poller, self->loop, self->sfd);
+        loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT,
+                        &socks_handshake_event);
     }
 
     self->addr = strdup(addr);
@@ -606,24 +590,20 @@ static int socks_shutdown(struct sk_ops *conn, int how)
 static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    unsigned int old = self->io_poller_ev.events;
+    unsigned int new_events = self->poller.events;
 
     if (self->phase != PHASE_FORWARDING) {
         return;
     }
 
     if (enable) {
-        self->io_poller_ev.events |= event;
+        new_events |= event;
     } else {
-        self->io_poller_ev.events &= ~event;
+        new_events &= ~event;
     }
 
-    if (old != self->io_poller_ev.events) {
-        if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
-                      &self->io_poller_ev) == -1) {
-            perror("epoll_ctl()");
-            abort();
-        }
+    if (new_events != self->poller.events) {
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, new_events, NULL);
     }
 }
 
@@ -741,11 +721,7 @@ static void socks_destroy(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
 
-    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_DEL, self->sfd, NULL) ==
-        -1) {
-        perror("epoll_ctl()");
-        abort();
-    }
+    loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {

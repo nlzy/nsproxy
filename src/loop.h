@@ -76,5 +76,18 @@ struct sk_ops {
 };
 
 struct ep_poller {
-    void (*on_epoll_event)(struct ep_poller *poller, unsigned int event);
+    /* WARNING: Do not modify these members manually.
+       Use loop_epoll_init() / loop_epoll_ctl() instead. */
+
+    /* READ ONLY, once loop_epoll_init() called then never change */
+    struct loopctx *loop;
+    int fd;
+
+    /* READ WRITE, change by loop_epoll_ctl() */
+    unsigned int events;
+    void (*on_event)(struct ep_poller *poller, unsigned int event);
 };
+
+void loop_poller_init(struct ep_poller *poller, struct loopctx *loop, int fd);
+void loop_poller_ctl(struct ep_poller *poller, int op, unsigned int events,
+                     void (*on_event)(struct ep_poller *, unsigned int));
