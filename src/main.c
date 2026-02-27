@@ -24,9 +24,11 @@ int nsproxy_verbose_level__ = 0;
 static void print_help(void)
 {
     printf("usage: \n"
-           "  nsproxy [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
+           "  nsproxy [-h] [-H] [-s <server>] [-p <port>] [-d <dns>] [-v|-q] "
            "<command>\n"
            "options:\n"
+           "  -h\n"
+           "    Print this help message and exit.\n"
            "  -H\n"
            "    Use http proxy, not socks5.\n"
            "  -s <server>\n"
@@ -518,8 +520,11 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+HDs:p:d:qv")) != -1) {
+    while ((opt = getopt(argc, argv, "+hHDs:p:d:qv")) != -1) {
         switch (opt) {
+        case 'h':
+            print_help();
+            exit(EXIT_SUCCESS);
         case 'H':
             ishttp = 1;
             break;
