@@ -51,6 +51,8 @@ static void tun_input(struct netif *tunif)
     /* shirk, set p->tot_len = nread */
     pbuf_realloc(p, nread);
 
+    loglv(3, "tun_input: read %zd bytes from TUN", nread);
+
     if (tunif->input(p, tunif) != ERR_OK) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_input: netif input error\n"));
         pbuf_free(p);
@@ -88,6 +90,8 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: partial write\n"));
         return ERR_IF;
     }
+
+    loglv(3, "tun_output: wrote %zd bytes to TUN", nwrite);
 
     return ERR_OK;
 }
@@ -184,6 +188,8 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
 
     memcpy(&p->conf, conf, sizeof(p->conf));
 
+    loglv(3, "loop_init: lwIP and event loop initialized");
+
     *loop = p;
 }
 
@@ -255,7 +261,7 @@ int loop_run(struct loopctx *loop)
                 if (sig.ssi_signo == SIGCHLD &&
                     (sig.ssi_code == CLD_EXITED || sig.ssi_code == CLD_KILLED ||
                      sig.ssi_code == CLD_DUMPED)) {
-                    loglv(1, "nsproxy is closing, bye~");
+                    loglv(1, "nsproxy is closing. Bye~");
                     loop_deinit(loop);
                     return 0;
                 }

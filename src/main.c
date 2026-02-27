@@ -208,6 +208,10 @@ static int bringup_tun(void)
         abort();
     }
 
+    loglv(3, "child: brought up tun device "
+             "(local ip: %s, gateway ip: %s, netmask: %s)",
+             NSPROXY_LOCAL_IP, NSPROXY_GATEWAY_IP, NSPROXY_NETMASK);
+
     close(sk);
     return tunfd;
 }
@@ -245,6 +249,8 @@ static void configure_resolv_conf(void)
     if (mount(path, "/etc/resolv.conf", NULL, MS_BIND | MS_RDONLY, NULL) == -1)
         goto failed_after_create;
 
+    loglv(3, "child: re-bound /etc/resolv.conf");
+
     close(fd);
     unlink(path);
     return;
@@ -275,6 +281,8 @@ static void configure_nsswitch_conf(void)
     if (mount(path, "/etc/nsswitch.conf", NULL, MS_BIND | MS_RDONLY, NULL) ==
         -1)
         goto failed_after_create;
+
+    loglv(3, "child: re-bound /etc/nsswitch.conf");
 
     close(fd);
     unlink(path);
@@ -424,6 +432,8 @@ static int parent(int sk, struct loopconf *conf)
 
     close(sk);
 
+    loglv(3, "parent: starting event loop");
+
     loop_init(&loop, conf, tunfd, childfd);
     return loop_run(loop);
 }
@@ -461,10 +471,14 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
             exit(EXIT_FAILURE);
         }
 
+        loglv(3, "child: created user and net namespace");
+
         set_setgroups("deny");
 
         map_uid(uid, uid);
         map_gid(gid, gid);
+    } else {
+        loglv(3, "child: created net namespace");
     }
 
     /* return value is not checked, failure is allowed. */
@@ -472,8 +486,11 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
 
     if (conf->dnstype != DNS_REDIR_OFF) {
         if (unshare_mount() == 0) {
+            loglv(3, "child: created mount namespace");
             configure_resolv_conf();
             configure_nsswitch_conf();
+        } else {
+            loglv(3, "child: failed to create mount namespace");
         }
     }
 
@@ -491,6 +508,8 @@ static int child(int sk, struct loopconf *conf, char *cmd[])
     }
 
     close(sk);
+
+    loglv(3, "child: execvp(\"%s\", ...)", cmd[0]);
 
     if (execvp(cmd[0], cmd) == -1) {
         if (errno == ENOENT) {
@@ -653,9 +672,11 @@ int main(int argc, char *argv[])
     }
 
     if (cid) {
+        loglv(3, "parent: forked child process (pid=%d)", cid);
         close(skpair[1]);
         return parent(skpair[0], &conf);
     } else {
+        loglv(3, "child: process started");
         close(skpair[0]);
         return child(skpair[1], &conf, argv + optind);
     }

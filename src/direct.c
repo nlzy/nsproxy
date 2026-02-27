@@ -43,6 +43,9 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     int sktype = self->isudp ? SOCK_DGRAM : SOCK_STREAM;
     int const enable = 1;
 
+    loglv(3, "direct_connect: connecting %s:%u/%s",
+             addr, (unsigned)port, self->isudp ? "udp" : "tcp");
+
     if (strlen(addr) >= 128)
         return -1;
 
@@ -84,6 +87,12 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     self->addr = strdup(addr);
     self->port = port;
 
+    if (self->isudp) {
+        loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
+    } else {
+        loglv(1, "Connected %s:%u/tcp", addr, (unsigned)port);
+    }
+
     return 0;
 }
 
@@ -92,6 +101,9 @@ static int direct_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     int ret;
+
+    loglv(3, "direct_shutdown: shutting down %s:%u/%s",
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     if ((ret = shutdown(self->sfd, how)) == -1) {
         if (is_ignored_skerr(errno)) {
@@ -138,8 +150,8 @@ static ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-    loglv(3, "--- direct %zd bytes. %s:%s:%u", nsent,
-          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
+    loglv(2, "--- direct %zd bytes. %s:%u/%s", nsent,
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     return nsent;
 }
@@ -160,8 +172,8 @@ static ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-    loglv(3, "+++ direct %zd bytes. %s:%s:%u", nread,
-          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
+    loglv(2, "+++ direct %zd bytes. %s:%u/%s", nread,
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     return nread;
 }
@@ -171,6 +183,9 @@ static void direct_destroy(struct sk_ops *conn)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
 
+    loglv(3, "direct_destroy: destroying %s:%u/%s",
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+
     loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
@@ -179,6 +194,8 @@ static void direct_destroy(struct sk_ops *conn)
             abort();
         }
     }
+
+    loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
 
     if (close(self->sfd) == -1) {
         perror("close()");
@@ -194,6 +211,8 @@ static void direct_destroy(struct sk_ops *conn)
 static struct conn_direct *direct_create_internel(void)
 {
     struct conn_direct *self;
+
+    loglv(3, "direct_create_internel: creating a new struct conn_direct");
 
     if ((self = malloc(sizeof(struct conn_direct))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");

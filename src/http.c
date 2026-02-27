@@ -119,6 +119,8 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     char vermin;
     int code;
 
+    loglv(3, "http_handshake_phase_2: receiving response");
+
     if (event & EPOLLERR) {
         self->userev(self->userp, EPOLLERR);
         return;
@@ -163,11 +165,17 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
     if (code != 200) {
+        if (code == 407 || code == 401) {
+            loglv(0, "Proxy authentication failed (HTTP %d). "
+                     "Please check your username and password.", code);
+        } else {
+            loglv(0, "Proxy server returned HTTP error %d", code);
+        }
         self->userev(self->userp, EPOLLERR);
         return;
     }
 
-    loglv(1, "Connected to tcp:%s:%u", self->addr, (unsigned)self->port);
+    loglv(1, "Connected to %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
     loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN,
@@ -180,6 +188,8 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nsent;
+
+    loglv(3, "http_handshake_phase_1: sending request");
 
     if (event & EPOLLERR) {
         self->userev(self->userp, EPOLLERR);
@@ -232,6 +242,8 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     struct addrinfo *result;
     int const enable = 1;
 
+    loglv(3, "http_connect: connecting %s:%u/tcp", addr, (unsigned)port);
+
     if (strlen(addr) >= 128)
         return -1;
 
@@ -283,6 +295,9 @@ static int http_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     int ret;
+
+    loglv(3, "http_shutdown: shutting down %s:%u/tcp",
+             self->addr, (unsigned)self->port);
 
     if (self->poller.on_event != &http_io_event) {
         return -ENOTCONN;
@@ -342,7 +357,7 @@ static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-    loglv(3, "--- http %zd bytes. tcp:%s:%u", nsent, self->addr,
+    loglv(2, "--- http %zd bytes. %s:%u/tcp", nsent, self->addr,
           (unsigned)self->port);
 
     return nsent;
@@ -369,7 +384,7 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-    loglv(3, "+++ http %zd bytes. tcp:%s:%u", nread, self->addr,
+    loglv(2, "+++ http %zd bytes. %s:%u/tcp", nread, self->addr,
           (unsigned)self->port);
 
     return nread;
@@ -379,6 +394,9 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
 static void http_destroy(struct sk_ops *conn)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
+
+    loglv(3, "http_destroy: destroying %s:%u/tcp",
+             self->addr, (unsigned)self->port);
 
     loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
@@ -390,7 +408,7 @@ static void http_destroy(struct sk_ops *conn)
     }
 
     if (self->poller.on_event == &http_io_event) {
-        loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
+        loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
     } else {
         loglv(0, "FAILED to connect to proxy server.");
     }
@@ -413,6 +431,8 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
                                void *userp)
 {
     struct conn_http *self;
+
+    loglv(3, "http_tcp_create: creating a new struct conn_http");
 
     if ((self = calloc(1, sizeof(struct conn_http))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");

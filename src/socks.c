@@ -30,6 +30,19 @@ static const char *phasestr[] = {
     [PHASE_FORWARDING] = "PHASE_FORWARDING",
 };
 
+static const char *rspstr[] = {
+    [0] = "Succeeded",
+    [1] = "General SOCKS server failure",
+    [2] = "Connection not allowed by ruleset",
+    [3] = "Network unreachable",
+    [4] = "Host unreachable",
+    [5] = "Connection refused",
+    [6] = "TTL expired",
+    [7] = "Command not supported",
+    [8] = "Address type not supported",
+    [9] = "Unassigned",
+};
+
 struct conn_socks {
     struct sk_ops ops;
     struct loopctx *loop;
@@ -345,6 +358,8 @@ static void socks_handshake_input(struct conn_socks *self)
 
         /* no a correct protocol header */
         if (self->buffer[0] != 5) {
+            loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
+                     "expected 0x05", (unsigned)self->buffer[0]);
             self->userev(self->userp, EPOLLERR);
             return;
         }
@@ -356,6 +371,10 @@ static void socks_handshake_input(struct conn_socks *self)
             /* no auth */
             self->phase = PHASE_SEND_REQUEST;
         } else {
+            if ((unsigned char)self->buffer[1] == 0xFF) {
+                loglv(0, "Proxy server requires authentication. "
+                         "Please check your username and password.");
+            }
             self->userev(self->userp, EPOLLERR);
             return;
         }
@@ -386,6 +405,8 @@ static void socks_handshake_input(struct conn_socks *self)
             return;
 
         if (self->buffer[0] != 1 || self->buffer[1] != 0) {
+            loglv(0, "SOCKS5 authentication failed. "
+                     "Please check your username and password.");
             self->userev(self->userp, EPOLLERR);
             return;
         }
@@ -456,13 +477,28 @@ static void socks_handshake_input(struct conn_socks *self)
             return;
         }
 
-        if (hdr.ver != 5 || hdr.rsp != 0) {
+        if (hdr.ver != 5) {
+            loglv(1, "Proxy server retern a bad reply: VER field is 0x%02x, "
+                     "expected 0x05", hdr.ver);
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        if (hdr.rsp != 0) {
+            if (hdr.rsp == 2) {
+                loglv(0, "Proxy server rejected our request: %s. "
+                         "Please check your username and password.",
+                         rspstr[2]);
+            } else {
+                loglv(1, "Proxy server retern a bad reply: %s",
+                         hdr.rsp > 9 ? rspstr[9] : rspstr[hdr.rsp]);
+            }
             self->userev(self->userp, EPOLLERR);
             return;
         }
 
         self->phase = PHASE_FORWARDING;
-        loglv(1, "Connected tcp:%s:%u", self->addr, (unsigned)self->port);
+        loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
     }
 
     /* when control flow reach here, it should finish a step of input phase */
@@ -486,12 +522,14 @@ static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
     struct conn_socks *self =
         container_of(poller, struct conn_socks, poller);
 
+    loglv(3, "socks_handshake_event: handshaking with %s:%u/%s [%s]",
+             self->addr, (unsigned)self->port,
+             self->isudp ? "udp" : "tcp", phasestr[self->phase]);
+
     if (event & (EPOLLERR | EPOLLHUP)) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
-
-    loglv(3, "Phase [%s]", phasestr[self->phase]);
 
     if (self->phase == PHASE_SEND_METHOD || self->phase == PHASE_SEND_AUTH ||
         self->phase == PHASE_SEND_REQUEST) {
@@ -512,6 +550,9 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     struct addrinfo *result;
     int sktype = self->isudp ? SOCK_DGRAM : SOCK_STREAM;
     int const enable = 1;
+
+    loglv(3, "socks_connect: connecting %s:%u/%s",
+             addr, (unsigned)port, self->isudp ? "udp" : "tcp");
 
     if (strlen(addr) >= 128)
         return -1;
@@ -547,7 +588,7 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     if (self->isudp) {
         /* it's no need to handshake in udp, start forward packet now */
         self->phase = PHASE_FORWARDING;
-        loglv(1, "Forwarding udp:%s:%u", addr, (unsigned)port);
+        loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
         loop_poller_init(&self->poller, self->loop, self->sfd);
         loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN,
                         &socks_fowarding_event);
@@ -569,6 +610,9 @@ static int socks_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     int ret;
+
+    loglv(3, "socks_shutdown: shutting down %s:%u/%s",
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     if (self->phase != PHASE_FORWARDING) {
         return -ENOTCONN;
@@ -660,8 +704,8 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
-    loglv(3, "--- socks %zd bytes. %s:%s:%u", nsent,
-          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
+    loglv(2, "--- socks %zd bytes. %s:%u/%s", nsent,
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     return nsent;
 }
@@ -687,8 +731,8 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
-    loglv(3, "+++ socks %zd bytes. %s:%s:%u", nread,
-          self->isudp ? "udp" : "tcp", self->addr, (unsigned)self->port);
+    loglv(2, "+++ socks %zd bytes. %s:%u/%s", nread,
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     /* is udp, parse and remove header */
     if (self->isudp) {
@@ -721,6 +765,9 @@ static void socks_destroy(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
 
+    loglv(3, "socks_destroy: destroying %s:%u/%s",
+             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+
     loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
@@ -731,9 +778,9 @@ static void socks_destroy(struct sk_ops *conn)
     }
 
     if (self->phase == PHASE_FORWARDING) {
-        loglv(2, "Closed %s:%u", self->addr, (unsigned)self->port);
+        loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
     } else if (self->phase == PHASE_RECV_REPLY) {
-        loglv(1, "Proxy server failed to connect %s:%u",
+        loglv(0, "Proxy server failed to connect %s:%u",
               self->addr, (unsigned)self->port);
     } else {
         loglv(0, "FAILED to connect proxy server at [%s].",
@@ -754,6 +801,8 @@ static void socks_destroy(struct sk_ops *conn)
 static struct conn_socks *socks_create_internal(void)
 {
     struct conn_socks *self;
+
+    loglv(3, "socks_create_internal: creating a new struct conn_socks");
 
     if ((self = calloc(1, sizeof(struct conn_socks))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");

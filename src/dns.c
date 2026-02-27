@@ -163,6 +163,8 @@ static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     struct conn_tcpdns_worker *worker;
     uint16_t sizebe;
 
+    loglv(2, "--- tcpdns %zd bytes query", size);
+
     if (size + 2 > sizeof(worker->buffer))
         return -E2BIG; /* query too large */
 
@@ -222,6 +224,8 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
     n = worker->nbuffer - 2;
     memcpy(data, worker->buffer + 2, n);
 
+    loglv(2, "+++ tcpdns %zd bytes answer", n);
+
     /* free */
     tcpdns_worker_destroy(worker);
 
@@ -232,6 +236,8 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 static void tcpdns_destroy(struct sk_ops *conn)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+
+    loglv(3, "tcpdns_destroy: destroying tcpdns master");
 
     while (master->workers)
         tcpdns_worker_destroy(master->workers);
@@ -248,6 +254,8 @@ struct sk_ops *tcpdns_create(struct loopctx *loop,
                              void *userp)
 {
     struct conn_tcpdns *master;
+
+    loglv(3, "tcpdns_create: creating a new struct conn_tcpdns");
 
     if ((master = calloc(1, sizeof(struct conn_tcpdns))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
