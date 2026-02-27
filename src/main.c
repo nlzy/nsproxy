@@ -44,7 +44,7 @@ static void print_help(void)
            "      -d udp://<nameserver_ipaddress>\n"
            "        Redirect DNS requests to specified UDP nameserver.\n"
            "  -a <user:password>\n"
-           "    Proxy authentication (HTTP Basic Auth only).\n"
+           "    Proxy authentication (SOCKS5 or HTTP Basic Auth).\n"
            "  -v\n"
            "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
            "  -q\n"

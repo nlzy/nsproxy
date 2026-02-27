@@ -358,6 +358,116 @@ void socks_handshake_phase_3(struct ep_poller *poller, unsigned int event)
 }
 
 /* epoll event callback
+   used of receiving socks auth reply */
+void socks_handshake_phase_auth_2(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *self =
+        container_of(poller, struct conn_socks, io_poller);
+    ssize_t nread;
+
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    if ((nread = recv(self->sfd, self->buffer + self->nbuffer,
+                      sizeof(self->buffer) - self->nbuffer, 0)) == -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("recv()");
+            abort();
+        }
+        return;
+    }
+    self->nbuffer += nread;
+
+    /* if nbuffer == 0, handshake failed because EOF
+       if nbuffer > 2, hanshake failed because server didn't follow RFC1929
+    */
+    if (self->nbuffer == 0 || self->nbuffer > 2) {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    /* wait more data */
+    if (self->nbuffer != 2)
+        return;
+
+    if (self->buffer[0] != 1 || self->buffer[1] != 0) {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    /* good, server replied correctly */
+    self->nbuffer = 0;
+    self->io_poller_ev.events = EPOLLOUT;
+    self->io_poller.on_epoll_event = &socks_handshake_phase_3;
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
+                  &self->io_poller_ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+}
+
+/* epoll event callback
+   used of sending socks auth request */
+void socks_handshake_phase_auth_1(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_socks *self =
+        container_of(poller, struct conn_socks, io_poller);
+    struct loopconf *conf = loop_conf(self->loop);
+    ssize_t nsent;
+
+    if (event & (EPOLLERR | EPOLLHUP)) {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    /* it's first called to this function, fill buffer */
+    if (self->nbuffer == 0) {
+        size_t ulen = strlen(conf->proxyuser);
+        size_t plen = strlen(conf->proxypass);
+
+        if (ulen > 255 || plen > 255) {
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        self->buffer[self->nbuffer++] = 1; /* ver */
+        self->buffer[self->nbuffer++] = (uint8_t)ulen;
+        memcpy(self->buffer + self->nbuffer, conf->proxyuser, ulen);
+        self->nbuffer += ulen;
+        self->buffer[self->nbuffer++] = (uint8_t)plen;
+        memcpy(self->buffer + self->nbuffer, conf->proxypass, plen);
+        self->nbuffer += plen;
+    }
+
+    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
+        -1) {
+        if (!is_ignored_skerr(errno)) {
+            perror("send()");
+            abort();
+        }
+        return;
+    }
+    self->nbuffer -= nsent;
+
+    /* partial write, wait next time to write rest */
+    if (self->nbuffer != 0) {
+        memmove(self->buffer, self->buffer + nsent, self->nbuffer);
+        return;
+    }
+
+    /* good, auth request has been sent */
+    self->io_poller_ev.events = EPOLLIN;
+    self->io_poller.on_epoll_event = &socks_handshake_phase_auth_2;
+    if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
+                  &self->io_poller_ev) == -1) {
+        perror("epoll_ctl()");
+        abort();
+    }
+}
+
+/* epoll event callback
    used of receiving socks handshake method */
 void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
@@ -392,15 +502,26 @@ void socks_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     if (self->nbuffer != 2)
         return;
 
-    if (self->buffer[0] != 5 || self->buffer[1] != 0) {
+    if (self->buffer[0] != 5) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
 
-    /* good, server replied correctly */
-    self->nbuffer = 0;
-    self->io_poller_ev.events = EPOLLOUT;
-    self->io_poller.on_epoll_event = &socks_handshake_phase_3;
+    if (self->buffer[1] == 2) {
+        /* proceed to auth */
+        self->nbuffer = 0;
+        self->io_poller_ev.events = EPOLLOUT;
+        self->io_poller.on_epoll_event = &socks_handshake_phase_auth_1;
+    } else if (self->buffer[1] == 0) {
+        /* no auth */
+        self->nbuffer = 0;
+        self->io_poller_ev.events = EPOLLOUT;
+        self->io_poller.on_epoll_event = &socks_handshake_phase_3;
+    } else {
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
     if (epoll_ctl(loop_epfd(self->loop), EPOLL_CTL_MOD, self->sfd,
                   &self->io_poller_ev) == -1) {
         perror("epoll_ctl()");
@@ -414,6 +535,7 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *self =
         container_of(poller, struct conn_socks, io_poller);
+    struct loopconf *conf = loop_conf(self->loop);
     ssize_t nsent;
 
     if (event & (EPOLLERR | EPOLLHUP)) {
@@ -423,17 +545,20 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 
     /* it's first called to this function, assembly request */
     if (self->nbuffer == 0) {
-        if (sizeof(self->buffer) < 3) {
+        if (sizeof(self->buffer) < 4) {
             self->userev(self->userp, EPOLLERR);
             return;
         }
-        /* current only support no auth
-         * TODO: SOCKS5 username/password authentication (RFC 1929)
-         * proxyuser/proxypass fields are reserved in loopconf for future use
-         */
+
         self->buffer[self->nbuffer++] = 5; /* ver */
-        self->buffer[self->nbuffer++] = 1; /* num */
-        self->buffer[self->nbuffer++] = 0; /* no auth (0x02 for user/pass) */
+        if (conf->proxyuser[0] != '\0') {
+            self->buffer[self->nbuffer++] = 2; /* num methods */
+            self->buffer[self->nbuffer++] = 0; /* no auth */
+            self->buffer[self->nbuffer++] = 2; /* user/pass auth */
+        } else {
+            self->buffer[self->nbuffer++] = 1; /* num methods */
+            self->buffer[self->nbuffer++] = 0; /* no auth */
+        }
     }
 
     if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==

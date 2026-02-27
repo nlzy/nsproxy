@@ -91,7 +91,6 @@ namespace, not the host.
 TODO
 ----------
 
- - HTTP / SOCKS authentication
  - IPv6
  - fullcone NAT
 
