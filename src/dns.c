@@ -46,10 +46,9 @@ struct conn_tcpdns_worker {
 };
 
 /* destory, and remove from workers list */
-void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
+static void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
 {
     struct conn_tcpdns *master = worker->master;
-    size_t i;
 
     if (!worker)
         return;
@@ -74,7 +73,7 @@ void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
 }
 
 /* handle event occured in connection to DNS */
-void tcpdns_worker_handle_event(void *userp, unsigned int event)
+static void tcpdns_worker_handle_event(void *userp, unsigned int event)
 {
     struct conn_tcpdns_worker *worker = userp;
     struct sk_ops *proxy = worker->proxy;
@@ -130,7 +129,7 @@ void tcpdns_worker_handle_event(void *userp, unsigned int event)
    just copy the address of nameserver, actual connecting is delayed until any
    queries started.
 */
-int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
+static int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
 
@@ -144,13 +143,13 @@ int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 }
 
 /* empty impl for struct sk_ops :: shutdown */
-int tcpdns_shutdown(struct sk_ops *conn, int how)
+static int tcpdns_shutdown(struct sk_ops *conn, int how)
 {
     return 0;
 }
 
 /* empty impl for struct sk_ops :: evctl */
-void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
+static void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     return;
 }
@@ -158,7 +157,7 @@ void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
 /* impl for struct sk_ops :: send
    create a worker to handle this query
 */
-ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
+static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
     struct conn_tcpdns_worker *worker;
@@ -205,11 +204,10 @@ ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 /* impl for struct sk_ops :: recv
    find a worker which is already got a reply, and return the reply
  */
-ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
+static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
     struct conn_tcpdns_worker *worker;
-    size_t i;
     ssize_t n;
 
     /* find first worker which marked done */
@@ -231,10 +229,9 @@ ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: destory */
-void tcpdns_destroy(struct sk_ops *conn)
+static void tcpdns_destroy(struct sk_ops *conn)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-    size_t i;
 
     while (master->workers)
         tcpdns_worker_destroy(master->workers);

@@ -31,7 +31,7 @@ struct conn_http {
 
 /* epoll event callback used after handshake
    we don't care events after handshaked, just forward event to user */
-void http_io_event(struct ep_poller *poller, unsigned int event)
+static void http_io_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *self = container_of(poller, struct conn_http, io_poller);
     self->userev(self->userp, event);
@@ -39,7 +39,7 @@ void http_io_event(struct ep_poller *poller, unsigned int event)
 
 /* epoll event callback
    used of receiving http response */
-void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
+static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *self = container_of(poller, struct conn_http, io_poller);
     ssize_t nread;
@@ -110,7 +110,7 @@ void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
 /* epoll event callback
    used of sending http request */
-void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
+static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *self = container_of(poller, struct conn_http, io_poller);
     ssize_t nsent;
@@ -156,7 +156,7 @@ void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 /* impl for struct sk_ops :: connect
    the argument addr and port is proxied connection, not proxy server
 */
-int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
+static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     struct loopconf *conf = loop_conf(self->loop);
@@ -210,7 +210,7 @@ int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 }
 
 /* impl for struct sk_ops :: shutdown */
-int http_shutdown(struct sk_ops *conn, int how)
+static int http_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     int ret;
@@ -232,7 +232,7 @@ int http_shutdown(struct sk_ops *conn, int how)
 }
 
 /* impl for struct sk_ops :: evctl */
-void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
+static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     unsigned int old = self->io_poller_ev.events;
@@ -257,7 +257,7 @@ void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
 }
 
 /* impl for struct sk_ops :: send */
-ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
+static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     ssize_t nsent;
@@ -284,7 +284,7 @@ ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: recv */
-ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
+static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     ssize_t nread;
@@ -311,7 +311,7 @@ ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: destory */
-void http_destroy(struct sk_ops *conn)
+static void http_destroy(struct sk_ops *conn)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
 

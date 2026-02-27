@@ -104,7 +104,7 @@ static err_t tunip6_output(struct netif *netif, struct pbuf *p,
     return tun_output(netif, p);
 }
 
-err_t tunif_init(struct netif *netif)
+static err_t tunif_init(struct netif *netif)
 {
     netif->name[0] = 't';
     netif->name[1] = 'u';

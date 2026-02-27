@@ -27,7 +27,7 @@ struct conn_direct {
 };
 
 /* epoll event callback, just forward event to user */
-void direct_io_event(struct ep_poller *poller, unsigned int event)
+static void direct_io_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_direct *self =
         container_of(poller, struct conn_direct, io_poller);
@@ -35,7 +35,7 @@ void direct_io_event(struct ep_poller *poller, unsigned int event)
 }
 
 /* impl for struct sk_ops :: connect */
-int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
+static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
@@ -94,7 +94,7 @@ int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 }
 
 /* impl for struct sk_ops :: shutdown */
-int direct_shutdown(struct sk_ops *conn, int how)
+static int direct_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     int ret;
@@ -112,7 +112,7 @@ int direct_shutdown(struct sk_ops *conn, int how)
 }
 
 /* impl for struct sk_ops :: evctl */
-void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
+static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     unsigned int old = self->io_poller_ev.events;
@@ -133,7 +133,7 @@ void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 }
 
 /* impl for struct sk_ops :: send */
-ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
+static ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     ssize_t nsent;
@@ -155,7 +155,7 @@ ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: recv */
-ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
+static ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
     ssize_t nread;
@@ -177,7 +177,7 @@ ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: destory */
-void direct_destroy(struct sk_ops *conn)
+static void direct_destroy(struct sk_ops *conn)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
 

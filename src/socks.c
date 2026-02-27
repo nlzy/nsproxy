@@ -462,7 +462,7 @@ void socks_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 /* impl for struct sk_ops :: connect
    the argument addr and port is proxied connection, not proxy server
 */
-int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
+static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     struct loopconf *conf = loop_conf(self->loop);
@@ -526,7 +526,7 @@ int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 }
 
 /* impl for struct sk_ops :: shutdown */
-int socks_shutdown(struct sk_ops *conn, int how)
+static int socks_shutdown(struct sk_ops *conn, int how)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     int ret;
@@ -548,7 +548,7 @@ int socks_shutdown(struct sk_ops *conn, int how)
 }
 
 /* impl for struct sk_ops :: evctl */
-void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
+static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     unsigned int old = self->io_poller_ev.events;
@@ -573,7 +573,7 @@ void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 }
 
 /* impl for struct sk_ops :: send */
-ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
+static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     char buffer[512]; /* for socks header only  */
@@ -632,7 +632,7 @@ ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: recv */
-ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
+static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     ssize_t nread;
@@ -682,7 +682,7 @@ ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
 }
 
 /* impl for struct sk_ops :: destory */
-void socks_destroy(struct sk_ops *conn)
+static void socks_destroy(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
 
@@ -718,7 +718,7 @@ void socks_destroy(struct sk_ops *conn)
 }
 
 /* used for internal only */
-struct conn_socks *socks_create_internal()
+static struct conn_socks *socks_create_internal(void)
 {
     struct conn_socks *self;
 
