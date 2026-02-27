@@ -25,6 +25,7 @@ BUILD
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+cmake --install build  # optional, required root privilege
 
 
 USAGE

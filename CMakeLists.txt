@@ -56,3 +56,17 @@ target_compile_options(nsproxy PRIVATE
 target_link_options(nsproxy PRIVATE
     $<$<CONFIG:Debug>:-fsanitize=address>
 )
+
+include(GNUInstallDirs)
+
+install(TARGETS nsproxy
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES nsproxy.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+)
+
+install(FILES COPYING README
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+)
