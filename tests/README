@@ -1,0 +1,75 @@
+nsproxy tests
+====================
+
+This directory contains integration tests for nsproxy. The integration test
+suite consists of three core components:
+
+1. Target Server
+   A Python-based socket server running in the test process, acting as the 
+   final destination for the network traffic. It handles bi-directional data
+   transfer and listens on ports 39000 (TCP) or 39001 (UDP).
+
+2. Proxy Servers
+   The tests support both v2ray and 3proxy as proxy servers. Each proxy server
+   runs on the host namespace and provides SOCKS5 and HTTP proxy services.
+   nsproxy connects to this server to forward captured traffic.
+   It listens on ports:
+   - 31080: SOCKS5 No Auth
+   - 31081: SOCKS5 Auth
+   - 38080: HTTP No Auth
+   - 38081: HTTP Auth
+
+3. nc client (Application)
+   A netcat instance launched by nsproxy. It runs inside a fresh network
+   namespace. Any network requests it makes (except to loopback) are
+   captured by nsproxy and forwarded through the proxy server to the target
+   server.
+
+
+REQUIREMENTS
+----------
+
+ - v2ray OR 3proxy (installed and in PATH, or both)
+ - netcat (nc)
+ - Python 3 with pytest
+
+
+USAGE
+----------
+
+To run all tests:
+  pytest -v tests/
+
+To run only tests with 3proxy:
+  pytest -v -k "3proxy" tests/
+
+To run only tests with v2ray:
+  pytest -v -k "v2ray" tests/
+
+To run only normal tests (skip Valgrind):
+  pytest -v -k "normal" tests/
+
+To run only Valgrind tests:
+  pytest -v -k "valgrind" tests/
+
+To see detailed logs (including nsproxy verbose logs and Valgrind reports):
+  pytest -v -s tests/
+
+Note: nsproxy runs in verbose mode (`-vvv`) only when pytest is run with
+verbose mode (`-v`). Without `-v`, nsproxy output is suppressed.
+
+VALGRIND TESTING
+----------------
+
+The Valgrind test suite is integrated into the standard pytest flow via 
+parameterization. It uses the following flags:
+- `--leak-check=full`: Perform a full memory leak search.
+- `--show-leak-kinds=all`: Show all types of leaks (definite, indirect, etc.).
+- `--error-exitcode=100`: Fail the test if Valgrind detects any errors or leaks.
+- `--trace-children=no`: Only profile nsproxy itself, not the applications it 
+  launches.
+
+Note: To run Valgrind tests correctly, the project should be compiled without 
+Address Sanitizer (ASan). Use the following build command:
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="-g -O0 -fno-omit-frame-pointer"
+  cmake --build build

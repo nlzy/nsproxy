@@ -1,6 +1,8 @@
 /build/
 /.*/
 
+__pycache__/
+
 *.o
 *.out
 
