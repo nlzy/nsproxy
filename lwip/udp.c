@@ -1352,16 +1352,20 @@ udp_debug_print(struct udp_hdr *udphdr)
 #endif /* UDP_DEBUG */
 
 #if NSPROXY_MODIFIED
-void udp_tmr(void)
+/* Garbage collection timer: If the gc counter is already zero, then free pcb.
+ * otherwise, the counter is decremented by one. Called every 1 second.
+ */
+void
+udp_tmr(void)
 {
-  struct udp_pcb *pcb, *tofree;
-  for (pcb = udp_pcbs; pcb != NULL; ) {
-    if (pcb->gc == 0) {
+  struct udp_pcb *tofree, *pcb = udp_pcbs;
+
+  while (pcb != NULL) {
+    if (pcb->gc-- == 0) {
       tofree = pcb;
       pcb = pcb->next;
       udp_remove(tofree);
     } else {
-      pcb->gc--;
       pcb = pcb->next;
     }
   }

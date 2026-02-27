@@ -236,14 +236,16 @@ tcp_free_listen(struct tcp_pcb *pcb)
 }
 
 #if NSPROXY_MODIFIED
+/* Garbage collection timer: If the gc counter is already zero, then free pcb.
+ * otherwise, the counter is decremented by one. Called every 1 second.
+ */
 static void
 tcp_gctmr(void)
 {
   struct tcp_pcb *tofree, *pcb = tcp_active_pcbs;
 
   while (pcb != NULL) {
-    pcb->gc--;
-    if (pcb->gc == 0) {
+    if (pcb->gc-- == 0) {
       tofree = pcb;
       pcb = pcb->next;
       tcp_abort(tofree);
