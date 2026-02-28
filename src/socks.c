@@ -258,10 +258,7 @@ static void socks_handshake_output(struct conn_socks *self)
     /* it's first called to this phase, assembly buffer */
     if (self->nbuffer == 0) {
         if (self->phase == PHASE_SEND_METHOD) {
-            if (sizeof(self->buffer) < 4) {
-                self->userev(self->userp, EPOLLERR);
-                return;
-            }
+            static_assert(sizeof(self->buffer) >= 4, "???");
 
             self->buffer[self->nbuffer++] = 5; /* ver */
             if (conf->proxyuser[0] != '\0') {
@@ -277,10 +274,8 @@ static void socks_handshake_output(struct conn_socks *self)
             size_t ulen = strlen(conf->proxyuser);
             size_t plen = strlen(conf->proxypass);
 
-            if (ulen > 64 || plen > 64) {
-                self->userev(self->userp, EPOLLERR);
-                return;
-            }
+            static_assert(sizeof(self->buffer) >= sizeof(conf->proxyuser)
+                              + sizeof(conf->proxypass) + 2, "????");
 
             self->buffer[self->nbuffer++] = 1; /* ver */
             self->buffer[self->nbuffer++] = (uint8_t)ulen;
@@ -295,22 +290,25 @@ static void socks_handshake_output(struct conn_socks *self)
             struct socks5addr ad;
             ssize_t ret;
 
+            static_assert(sizeof(self->buffer) >= sizeof(hdr) + sizeof(ad.addr)
+                              + 3, "???");
+
             strncpy(ad.addr, self->addr, sizeof(ad.addr) - 1);
             ad.port = self->port;
 
             ret = socks5_hdr_put(self->buffer + self->nbuffer,
                                  sizeof(self->buffer) - self->nbuffer, &hdr);
             if (ret == -1) {
-                self->userev(self->userp, EPOLLERR);
-                return;
+                fprintf(stderr, "an invariant violation has been detected.\n");
+                abort();
             }
             self->nbuffer += ret;
 
             ret = socks5_addr_put(self->buffer + self->nbuffer,
                                   sizeof(self->buffer) - self->nbuffer, &ad);
             if (ret == -1) {
-                self->userev(self->userp, EPOLLERR);
-                return;
+                fprintf(stderr, "an invariant violation has been detected.\n");
+                abort();
             }
             self->nbuffer += ret;
         }

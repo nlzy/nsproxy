@@ -30,4 +30,12 @@
             fprintf(stderr, "[nsproxy] " str "\n", ##__VA_ARGS__); \
     } while (0)
 
+#ifndef static_assert
+#if defined(__GNUC__) && (__GNUC__ > 4)
+#define static_assert(cond, msg) __extension__ _Static_assert(cond, msg)
+#else
+#define static_assert(cond, msg)
+#endif
+#endif
+
 extern int nsproxy_verbose_level__;
