@@ -9,6 +9,18 @@
 
 #include "loop.h"
 
+enum {
+    PHASE_SEND_REQUEST = 1,
+    PHASE_RECV_REPLY,
+    PHASE_FORWARDING
+};
+
+static const char *phasestr[] = {
+    [PHASE_SEND_REQUEST] = "PHASE_SEND_REQUEST",
+    [PHASE_RECV_REPLY] = "PHASE_RECV_REPLY",
+    [PHASE_FORWARDING] = "PHASE_FORWARDING",
+};
+
 /* Base64 encoding table */
 static const char base64_chars[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -92,6 +104,8 @@ struct conn_http {
     int sfd; /* socket fd to proxy server */
     struct ep_poller poller;
 
+    int phase;
+
     /* for handshake only */
     /* TODO: free these buffer after handshake finished */
     char buffer[512];
@@ -100,33 +114,15 @@ struct conn_http {
     char *auth_header; /* Proxy-Authorization header (malloc'd) */
 };
 
-/* epoll event callback used after handshake
-   we don't care events after handshaked, just forward event to user */
-static void http_io_event(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_http *self = container_of(poller, struct conn_http, poller);
-    self->userev(self->userp, event);
-}
-
 /* epoll event callback
    used of receiving http response */
-static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
+static void http_handshake_input(struct conn_http *self)
 {
-    struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nread;
     char *crlf2;
     ssize_t ndiscard;
     char vermin;
     int code;
-
-    loglv(3, "http_handshake_phase_2: receiving response");
-
-    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
-        loglv(0, "Proxy connection closed unexpectedly during HTTP recieving "
-                 "handshake response.");
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
 
     /* Use MSG_PEEK here, if some application layer data has been returned,
        we can carefuly not to touch them
@@ -194,28 +190,18 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
+    self->phase = PHASE_FORWARDING;
     loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
-    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN,
-                    &http_io_event);
+    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN, NULL);
 }
 
 /* epoll event callback
    used of sending http request */
-static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
+static void http_handshake_output(struct conn_http *self)
 {
-    struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nsent;
-
-    loglv(3, "http_handshake_phase_1: sending request");
-
-    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
-        loglv(0, "Proxy connection closed unexpectedly during HTTP sending "
-                 "handshake request.");
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
 
     /* it's first called to this function, assembly request */
     if (!self->nbuffer) {
@@ -241,15 +227,43 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     }
     self->nbuffer -= nsent;
 
-    /* partial write, wait next time to write rest */
     if (self->nbuffer != 0) {
+        /* partial write, wait next time to write rest */
         memmove(self->buffer, self->buffer + nsent, self->nbuffer);
         return;
     }
 
     /* good, http request has been send */
-    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN,
-                    &http_handshake_phase_2);
+    self->phase = PHASE_RECV_REPLY;
+    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN, NULL);
+}
+
+static void http_poller_event(struct ep_poller *poller, unsigned int event)
+{
+    struct conn_http *self =
+        container_of(poller, struct conn_http, poller);
+
+    /* we don't care events after handshaked, just forward event to user */
+    if (self->phase == PHASE_FORWARDING) {
+        self->userev(self->userp, event);
+        return;
+    }
+
+    loglv(3, "http_poller_event: handshaking with %s:%u/tcp [%s]",
+             self->addr, (unsigned)self->port, phasestr[self->phase]);
+
+    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
+        loglv(0, "Proxy connection closed unexpectedly during HTTP handshake "
+                 "phase [%s]", phasestr[self->phase]);
+        self->userev(self->userp, EPOLLERR);
+        return;
+    }
+
+    if (self->phase == PHASE_SEND_REQUEST) {
+        http_handshake_output(self);
+    } else {
+        http_handshake_input(self);
+    }
 }
 
 /* impl for struct sk_ops :: connect
@@ -301,9 +315,10 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     }
 
     /* good, start handshake */
+    self->phase = PHASE_SEND_REQUEST;
     loop_poller_init(&self->poller, self->loop, self->sfd);
     loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT,
-                    &http_handshake_phase_1);
+                    &http_poller_event);
 
     self->addr = strdup(addr);
     self->port = port;
@@ -320,7 +335,7 @@ static int http_shutdown(struct sk_ops *conn, int how)
     loglv(3, "http_shutdown: shutting down %s:%u/tcp",
              self->addr, (unsigned)self->port);
 
-    if (self->poller.on_event != &http_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -ENOTCONN;
     }
 
@@ -342,7 +357,7 @@ static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     unsigned int new_events = self->poller.events;
 
-    if (self->poller.on_event != &http_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return;
     }
 
@@ -364,7 +379,7 @@ static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
     ssize_t nsent;
 
     /* handshake is not finished */
-    if (self->poller.on_event != &http_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
@@ -391,7 +406,7 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
     ssize_t nread;
 
     /* handshake is not finished */
-    if (self->poller.on_event != &http_io_event) {
+    if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
@@ -428,7 +443,7 @@ static void http_destroy(struct sk_ops *conn)
         }
     }
 
-    if (self->poller.on_event == &http_io_event) {
+    if (self->phase == PHASE_FORWARDING) {
         loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
     }
 

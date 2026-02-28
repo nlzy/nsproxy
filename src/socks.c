@@ -241,15 +241,6 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
     return cur - buffer;
 }
 
-/* epoll event callback used after handshake
-   we don't care events after handshaked, just forward event to user */
-static void socks_fowarding_event(struct ep_poller *poller, unsigned int event)
-{
-    struct conn_socks *self =
-        container_of(poller, struct conn_socks, poller);
-    self->userev(self->userp, event);
-}
-
 static void socks_handshake_output(struct conn_socks *self)
 {
     struct loopconf *conf = loop_conf(self->loop);
@@ -534,28 +525,30 @@ static void socks_handshake_input(struct conn_socks *self)
         loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
     }
 
-    /* when control flow reach here, it should finish a step of input phase */
-    assert(self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH
-           || PHASE_FORWARDING);
-
     /* clear input buffer */
     self->nbuffer = 0;
 
+    /* when control flow reach here, it should finish a step of input phase */
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
         loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT, NULL);
-    } else if (self->phase == PHASE_FORWARDING) {
-        /* handshake finish, listen and forward epoll event for user */
-        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT,
-                        &socks_fowarding_event);
+    } else {
+        assert(self->phase == PHASE_FORWARDING);
+        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT, NULL);
     }
 }
 
-static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
+static void socks_poller_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_socks *self =
         container_of(poller, struct conn_socks, poller);
 
-    loglv(3, "socks_handshake_event: handshaking with %s:%u/%s [%s]",
+    /* we don't care events after handshaked, just forward event to user */
+    if (self->phase == PHASE_FORWARDING) {
+        self->userev(self->userp, event);
+        return;
+    }
+
+    loglv(3, "socks_poller_event: handshaking with %s:%u/%s [%s]",
              self->addr, (unsigned)self->port,
              self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 
@@ -626,12 +619,12 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
         loop_poller_init(&self->poller, self->loop, self->sfd);
         loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN,
-                        &socks_fowarding_event);
+                        &socks_poller_event);
     } else {
         self->phase = PHASE_SEND_METHOD;
         loop_poller_init(&self->poller, self->loop, self->sfd);
         loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT,
-                        &socks_handshake_event);
+                        &socks_poller_event);
     }
 
     self->addr = strdup(addr);

@@ -26,7 +26,7 @@ struct conn_direct {
 };
 
 /* epoll event callback, just forward event to user */
-static void direct_io_event(struct ep_poller *poller, unsigned int event)
+static void direct_poller_event(struct ep_poller *poller, unsigned int event)
 {
     struct conn_direct *self =
         container_of(poller, struct conn_direct, poller);
@@ -82,7 +82,7 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     loop_poller_init(&self->poller, self->loop, self->sfd);
     loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLIN | EPOLLOUT,
-                    &direct_io_event);
+                    &direct_poller_event);
 
     self->addr = strdup(addr);
     self->port = port;
