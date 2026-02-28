@@ -353,18 +353,16 @@ static void socks_handshake_input(struct conn_socks *self)
             }
             return;
         }
-        self->nbuffer += nread;
-
-        /* if nbuffer == 0, handshake failed because EOF
-           if nbuffer > 2, hanshake failed because server didn't follow RFC1928
-        */
-        if (self->nbuffer == 0 || self->nbuffer > 2) {
+        if (nread == 0) {
+            loglv(0, "Proxy server closed connection unexpectedly during "
+                     "method negotiation");
             self->userev(self->userp, EPOLLERR);
             return;
         }
+        self->nbuffer += nread;
 
         /* wait more data */
-        if (self->nbuffer != 2)
+        if (self->nbuffer < 2)
             return;
 
         /* no a correct protocol header */
@@ -375,17 +373,32 @@ static void socks_handshake_input(struct conn_socks *self)
             return;
         }
 
+        /* server reject our all method */
+        if ((unsigned char)self->buffer[1] == 0xFF) {
+            loglv(0, "Proxy server requires authentication. "
+                     "Please check your username and password.");
+            self->userev(self->userp, EPOLLERR);
+            return;
+        } /* - else: server selected a method */
+
+        /* should be only one method */
+        if (self->nbuffer != 2) {
+            loglv(0, "Proxy server returned invalid method response");
+            self->userev(self->userp, EPOLLERR);
+            return;
+        }
+
+        /* see what method server selected */
         if (self->buffer[1] == 2) {
-            /* proceed to auth */
+            /* username password auth */
             self->phase = PHASE_SEND_AUTH;
         } else if (self->buffer[1] == 0) {
             /* no auth */
             self->phase = PHASE_SEND_REQUEST;
         } else {
-            if ((unsigned char)self->buffer[1] == 0xFF) {
-                loglv(0, "Proxy server requires authentication. "
-                         "Please check your username and password.");
-            }
+            /* other */
+            loglv(0, "Proxy server returned unsupported authentication "
+                     "method: 0x%02x", (unsigned char)self->buffer[1]);
             self->userev(self->userp, EPOLLERR);
             return;
         }
