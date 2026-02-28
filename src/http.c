@@ -95,6 +95,8 @@ struct conn_http {
     struct sk_ops ops;
     struct loopctx *loop;
 
+    int refcnt;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
@@ -439,12 +441,10 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
     return nread;
 }
 
-/* impl for struct sk_ops :: destory */
-static void http_destroy(struct sk_ops *conn)
+/* internal destroy function, called when refcnt reaches zero */
+static void http_destroy_internal(struct conn_http *self)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
-
-    loglv(3, "http_destroy: destroying %s:%u/tcp",
+    loglv(3, "http_destroy_internal: destroying %s:%u/tcp",
              self->addr, (unsigned)self->port);
 
     http_epoll_ctl(self, EPOLL_CTL_DEL, 0);
@@ -471,6 +471,22 @@ static void http_destroy(struct sk_ops *conn)
     free(self);
 }
 
+/* impl for struct sk_ops :: get */
+static void http_get(struct sk_ops *conn)
+{
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    self->refcnt++;
+}
+
+/* impl for struct sk_ops :: put */
+static void http_put(struct sk_ops *conn)
+{
+    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    if (--self->refcnt == 0) {
+        http_destroy_internal(self);
+    }
+}
+
 /* create a tcp connection
    this connection is proxied via http proxy server */
 struct sk_ops *http_tcp_create(struct loopctx *loop,
@@ -491,9 +507,11 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     self->ops.evctl = &http_evctl;
     self->ops.send = &http_send;
     self->ops.recv = &http_recv;
-    self->ops.destroy = &http_destroy;
+    self->ops.get = &http_get;
+    self->ops.put = &http_put;
     self->ops.on_event = &http_poller_event;
 
+    self->refcnt = 1;
     self->loop = loop;
     self->userev = userev;
     self->userp = userp;

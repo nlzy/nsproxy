@@ -14,6 +14,8 @@ struct conn_direct {
     struct sk_ops ops;
     struct loopctx *loop;
 
+    int refcnt;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
@@ -190,12 +192,10 @@ static ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
     return nread;
 }
 
-/* impl for struct sk_ops :: destory */
-static void direct_destroy(struct sk_ops *conn)
+/* internal destroy function, called when refcnt reaches zero */
+static void direct_destroy_internal(struct conn_direct *self)
 {
-    struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-
-    loglv(3, "direct_destroy: destroying %s:%u/%s",
+    loglv(3, "direct_destroy_internal: destroying %s:%u/%s",
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
     direct_epoll_ctl(self, EPOLL_CTL_DEL, 0);
@@ -219,6 +219,22 @@ static void direct_destroy(struct sk_ops *conn)
     free(self);
 }
 
+/* impl for struct sk_ops :: get */
+static void direct_get(struct sk_ops *conn)
+{
+    struct conn_direct *self = container_of(conn, struct conn_direct, ops);
+    self->refcnt++;
+}
+
+/* impl for struct sk_ops :: put */
+static void direct_put(struct sk_ops *conn)
+{
+    struct conn_direct *self = container_of(conn, struct conn_direct, ops);
+    if (--self->refcnt == 0) {
+        direct_destroy_internal(self);
+    }
+}
+
 /* used for internal only */
 static struct conn_direct *direct_create_internel(void)
 {
@@ -236,8 +252,11 @@ static struct conn_direct *direct_create_internel(void)
     self->ops.evctl = &direct_evctl;
     self->ops.send = &direct_send;
     self->ops.recv = &direct_recv;
-    self->ops.destroy = &direct_destroy;
+    self->ops.get = &direct_get;
+    self->ops.put = &direct_put;
     self->ops.on_event = &direct_poller_event;
+
+    self->refcnt = 1;
 
     return self;
 }

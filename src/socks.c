@@ -55,6 +55,8 @@ struct conn_socks {
     struct sk_ops ops;
     struct loopctx *loop;
 
+    int refcnt;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
@@ -798,12 +800,10 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
     return nread;
 }
 
-/* impl for struct sk_ops :: destory */
-static void socks_destroy(struct sk_ops *conn)
+/* internal destroy function, called when refcnt reaches zero */
+static void socks_destroy_internal(struct conn_socks *self)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-
-    loglv(3, "socks_destroy: destroying %s:%u/%s", self->addr,
+    loglv(3, "socks_destroy_internal: destroying %s:%u/%s", self->addr,
              (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
     socks_epoll_ctl(self, EPOLL_CTL_DEL, 0);
@@ -829,6 +829,24 @@ static void socks_destroy(struct sk_ops *conn)
     free(self);
 }
 
+/* impl for struct sk_ops :: get */
+static void socks_get(struct sk_ops *conn)
+{
+    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    loglv(3, "socks_get: refcnt %d -> %d", self->refcnt, self->refcnt + 1);
+    self->refcnt++;
+}
+
+/* impl for struct sk_ops :: put */
+static void socks_put(struct sk_ops *conn)
+{
+    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    loglv(3, "socks_put: refcnt %d -> %d", self->refcnt, self->refcnt - 1);
+    if (--self->refcnt == 0) {
+        socks_destroy_internal(self);
+    }
+}
+
 /* used for internal only */
 static struct conn_socks *socks_create_internal(void)
 {
@@ -846,10 +864,12 @@ static struct conn_socks *socks_create_internal(void)
     self->ops.evctl = &socks_evctl;
     self->ops.send = &socks_send;
     self->ops.recv = &socks_recv;
-    self->ops.destroy = &socks_destroy;
+    self->ops.get = &socks_get;
+    self->ops.put = &socks_put;
     self->ops.on_event = &socks_poller_event;
 
     self->sfd = -1;
+    self->refcnt = 1;
 
     return self;
 }

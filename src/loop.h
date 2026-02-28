@@ -67,12 +67,18 @@ struct sk_ops {
     */
     ssize_t (*recv)(struct sk_ops *conn, char *data, size_t len);
 
-    /* destory funcion
-       release all resources including memory
+    /* get funcion
+       increase reference count of this connection
+     */
+    void (*get)(struct sk_ops *conn);
+
+    /* put funcion
+       decrease reference count of this connection
+       release all resources including memory if refcnt reaches zero
        should call this funcion if a EPOLLERR occured in usercallback
-       call to shudown before destory is not required
-    */
-    void (*destroy)(struct sk_ops *conn);
+       call to shutdown before put is not required
+     */
+    void (*put)(struct sk_ops *conn);
 
     /* epoll event callback function
         called when an epoll event occurs on this connection

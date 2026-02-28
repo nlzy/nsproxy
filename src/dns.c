@@ -17,6 +17,8 @@ struct conn_tcpdns {
     struct sk_ops ops;
     struct loopctx *loop;
 
+    int refcnt;
+
     void (*userev)(void *userp, unsigned int event);
     void *userp;
 
@@ -55,7 +57,7 @@ static void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
 
     /* close connection (if present) */
     if (worker->proxy) {
-        worker->proxy->destroy(worker->proxy);
+        worker->proxy->put(worker->proxy);
         worker->proxy = NULL;
     }
 
@@ -98,7 +100,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
             memcpy(&rsz, worker->buffer, sizeof(rsz));
             rsz = be16toh(rsz);
             if (rsz + 2 == worker->nbuffer) {
-                proxy->destroy(proxy);
+                proxy->put(proxy);
                 worker->proxy = NULL;
                 worker->done = 1;
                 worker->master->userev(worker->master->userp, EPOLLIN);
@@ -232,18 +234,32 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
     return n;
 }
 
-/* impl for struct sk_ops :: destory */
-static void tcpdns_destroy(struct sk_ops *conn)
+/* internal destroy function, called when refcnt reaches zero */
+static void tcpdns_destroy_internal(struct conn_tcpdns *master)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-
-    loglv(3, "tcpdns_destroy: destroying tcpdns master");
+    loglv(3, "tcpdns_destroy_internal: destroying tcpdns master");
 
     while (master->workers)
         tcpdns_worker_destroy(master->workers);
 
     free(master->addr);
     free(master);
+}
+
+/* impl for struct sk_ops :: get */
+static void tcpdns_get(struct sk_ops *conn)
+{
+    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    master->refcnt++;
+}
+
+/* impl for struct sk_ops :: put */
+static void tcpdns_put(struct sk_ops *conn)
+{
+    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    if (--master->refcnt == 0) {
+        tcpdns_destroy_internal(master);
+    }
 }
 
 /* create a pseudo udp connection
@@ -267,8 +283,10 @@ struct sk_ops *tcpdns_create(struct loopctx *loop,
     master->ops.evctl = &tcpdns_evctl;
     master->ops.send = &tcpdns_send;
     master->ops.recv = &tcpdns_recv;
-    master->ops.destroy = &tcpdns_destroy;
+    master->ops.get = &tcpdns_get;
+    master->ops.put = &tcpdns_put;
 
+    master->refcnt = 1;
     master->userev = userev;
     master->userp = userp;
 

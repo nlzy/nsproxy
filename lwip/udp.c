@@ -1234,7 +1234,7 @@ udp_remove(struct udp_pcb *pcb)
   }
 #if NSPROXY_MODIFIED
   if (pcb->proxy) {
-    pcb->proxy->destroy(pcb->proxy);
+    pcb->proxy->put(pcb->proxy);
   }
   while (pcb->nrcvq --> 0) { /* out of tricks, it's time to bite a lighter. */
     pbuf_free(pcb->rcvq[pcb->nrcvq]);

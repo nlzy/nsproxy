@@ -90,7 +90,7 @@ static void udp_proxy_io_event(void *userp, unsigned int event)
        program could simplely retry when IO error occured.
     */
     if (event & (EPOLLERR | EPOLLHUP)) {
-        pcb->proxy->destroy(pcb->proxy);
+        pcb->proxy->put(pcb->proxy);
         pcb->proxy = NULL;
         udp_remove(pcb);
         return;
@@ -262,7 +262,7 @@ static void tcp_proxy_io_event(void *userp, unsigned int event)
        program could simplely retry when IO error occured.
     */
     if (event & EPOLLERR) {
-        pcb->proxy->destroy(pcb->proxy);
+        pcb->proxy->put(pcb->proxy);
         pcb->proxy = NULL;
         tcp_abort(pcb);
         return;
@@ -282,7 +282,7 @@ static void tcp_proxy_io_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLHUP) {
-        pcb->proxy->destroy(pcb->proxy);
+        pcb->proxy->put(pcb->proxy);
         pcb->proxy = NULL;
         tcp_close(pcb);
     }

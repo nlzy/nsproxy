@@ -215,7 +215,7 @@ tcp_free(struct tcp_pcb *pcb)
 #endif
 #if NSPROXY_MODIFIED
   if (pcb->proxy)
-    pcb->proxy->destroy(pcb->proxy);
+    pcb->proxy->put(pcb->proxy);
   if (pcb->sndq)
     pbuf_free(pcb->sndq);
   if (pcb->rcvq)
