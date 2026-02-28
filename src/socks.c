@@ -368,7 +368,7 @@ static void socks_handshake_input(struct conn_socks *self)
         /* no a correct protocol header */
         if (self->buffer[0] != 5) {
             loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
-                     "expected 0x05", (unsigned)self->buffer[0]);
+                     "expected 0x05", (unsigned char)self->buffer[0]);
             self->userev(self->userp, EPOLLERR);
             return;
         }
@@ -420,6 +420,12 @@ static void socks_handshake_input(struct conn_socks *self)
            if nbuffer > 2, hanshake failed because server didn't follow RFC1929
         */
         if (self->nbuffer == 0 || self->nbuffer > 2) {
+            if (self->nbuffer == 0) {
+                loglv(0, "Proxy server closed connection unexpectedly during "
+                         "authentication");
+            } else {
+                loglv(0, "Proxy server returned invalid auth response");
+            }
             self->userev(self->userp, EPOLLERR);
             return;
         }
@@ -494,15 +500,18 @@ static void socks_handshake_input(struct conn_socks *self)
         if (!pass) {
             /* failed, handshake not finished but connection lost or buffer
                full */
-            if (s == 0 || self->nbuffer == sizeof(self->buffer))
+            if (s == 0 || self->nbuffer == sizeof(self->buffer)) {
+                loglv(0, "Proxy server returned a header that is too large "
+                         "during the handshake.");
                 self->userev(self->userp, EPOLLERR);
+            }
 
             /* if not failed, wait for rest handshake message */
             return;
         }
 
         if (hdr.ver != 5) {
-            loglv(1, "Proxy server retern a bad reply: VER field is 0x%02x, "
+            loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
                      "expected 0x05", hdr.ver);
             self->userev(self->userp, EPOLLERR);
             return;
@@ -514,7 +523,7 @@ static void socks_handshake_input(struct conn_socks *self)
                          "Please check your username and password.",
                          rspstr[2]);
             } else {
-                loglv(1, "Proxy server retern a bad reply: %s",
+                loglv(0, "Proxy server rejected our request: %s",
                          hdr.rsp > 9 ? rspstr[9] : rspstr[hdr.rsp]);
             }
             self->userev(self->userp, EPOLLERR);
@@ -551,6 +560,8 @@ static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
              self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 
     if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
+        loglv(0, "Proxy connection closed unexpectedly during SOCKS handshake "
+                 "phase [%s]", phasestr[self->phase]);
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -803,12 +814,6 @@ static void socks_destroy(struct sk_ops *conn)
 
     if (self->phase == PHASE_FORWARDING) {
         loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
-    } else if (self->phase == PHASE_RECV_REPLY) {
-        loglv(0, "Proxy server failed to connect %s:%u",
-              self->addr, (unsigned)self->port);
-    } else {
-        loglv(0, "FAILED to connect proxy server at [%s].",
-              phasestr[self->phase]);
     }
 
     if (close(self->sfd) == -1) {

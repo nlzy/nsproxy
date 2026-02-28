@@ -122,6 +122,8 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
     loglv(3, "http_handshake_phase_2: receiving response");
 
     if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
+        loglv(0, "Proxy connection closed unexpectedly during HTTP recieving "
+                 "handshake response.");
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -176,6 +178,8 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
     /* check response */
     if (sscanf(self->buffer, "HTTP/1.%c %d", &vermin, &code) != 2) {
+        loglv(0, "Proxy server returned invalid HTTP response header during "
+                 "handshake");
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -190,7 +194,7 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
-    loglv(1, "Connected to %s:%u/tcp", self->addr, (unsigned)self->port);
+    loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
     loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN,
@@ -207,6 +211,8 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
     loglv(3, "http_handshake_phase_1: sending request");
 
     if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
+        loglv(0, "Proxy connection closed unexpectedly during HTTP sending "
+                 "handshake request.");
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -424,8 +430,6 @@ static void http_destroy(struct sk_ops *conn)
 
     if (self->poller.on_event == &http_io_event) {
         loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
-    } else {
-        loglv(0, "FAILED to connect to proxy server.");
     }
 
     if (close(self->sfd) == -1) {
