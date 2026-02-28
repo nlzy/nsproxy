@@ -25,6 +25,9 @@ struct conn_direct {
 
     int sfd;
     unsigned int events;
+
+    size_t nsent;
+    size_t nread;
 };
 
 static void direct_epoll_ctl(struct conn_direct *self, int op, unsigned events)
@@ -164,6 +167,7 @@ static ssize_t direct_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
+    self->nsent += nsent;
     loglv(2, "--- direct %zd bytes. %s:%u/%s", nsent,
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
@@ -186,6 +190,7 @@ static ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
+    self->nread += nread;
     loglv(2, "+++ direct %zd bytes. %s:%u/%s", nread,
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
@@ -207,7 +212,8 @@ static void direct_destroy_internal(struct conn_direct *self)
         }
     }
 
-    loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
+    loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
+             self->addr, (unsigned)self->port, self->nsent, self->nread);
 
     if (close(self->sfd) == -1) {
         perror("close()");
@@ -242,7 +248,7 @@ static struct conn_direct *direct_create_internel(void)
 
     loglv(3, "direct_create_internel: creating a new struct conn_direct");
 
-    if ((self = malloc(sizeof(struct conn_direct))) == NULL) {
+    if ((self = calloc(1, sizeof(struct conn_direct))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }

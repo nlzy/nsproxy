@@ -78,6 +78,9 @@ struct conn_socks {
     /* TODO: free these buffer after handshake finished */
     char buffer[512];
     size_t nbuffer;
+
+    size_t nsent;
+    size_t nread;
 };
 
 struct socks5hdr {
@@ -744,6 +747,7 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
+    self->nsent += nsent;
     loglv(2, "--- socks %zd bytes. %s:%u/%s", nsent, self->addr,
              (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
@@ -771,6 +775,7 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
+    self->nread += nread;
     loglv(2, "+++ socks %zd bytes. %s:%u/%s", nread, self->addr,
              (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
@@ -816,7 +821,8 @@ static void socks_destroy_internal(struct conn_socks *self)
     }
 
     if (self->phase == PHASE_FORWARDING) {
-        loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
+        loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
+                 self->addr, (unsigned)self->port, self->nsent, self->nread);
     }
 
     if (close(self->sfd) == -1) {

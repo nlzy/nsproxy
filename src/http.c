@@ -114,6 +114,9 @@ struct conn_http {
     ssize_t nbuffer;
 
     char *auth_header; /* Proxy-Authorization header (malloc'd) */
+
+    size_t nsent;
+    size_t nread;
 };
 
 static void http_epoll_ctl(struct conn_http *self, int op, unsigned events)
@@ -408,6 +411,7 @@ static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
         }
     }
 
+    self->nsent += nsent;
     loglv(2, "--- http %zd bytes. %s:%u/tcp", nsent, self->addr,
           (unsigned)self->port);
 
@@ -435,6 +439,7 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
         }
     }
 
+    self->nread += nread;
     loglv(2, "+++ http %zd bytes. %s:%u/tcp", nread, self->addr,
           (unsigned)self->port);
 
@@ -457,7 +462,8 @@ static void http_destroy_internal(struct conn_http *self)
     }
 
     if (self->phase == PHASE_FORWARDING) {
-        loglv(1, "Closed %s:%u", self->addr, (unsigned)self->port);
+        loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
+                 self->addr, (unsigned)self->port, self->nsent, self->nread);
     }
 
     if (close(self->sfd) == -1) {
