@@ -114,8 +114,8 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 {
     struct conn_http *self = container_of(poller, struct conn_http, poller);
     ssize_t nread;
-    char *p; /* pointer to end of HTTP response, NULL if response not ended  */
-    ssize_t s; /* how many bytes belongs HTTP response in this read */
+    char *crlf2;
+    ssize_t ndiscard;
     char vermin;
     int code;
 
@@ -126,8 +126,9 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         return;
     }
 
-    /* use MSG_PEEK here, if some application layer data has been returned,
+    /* Use MSG_PEEK here, if some application layer data has been returned,
        we can carefuly not to touch them
+       Treat self->buffer as string, nerver forget set a '\0' after recv()
     */
     nread = recv(self->sfd, self->buffer + self->nbuffer,
                  sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
@@ -143,19 +144,26 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
         self->userev(self->userp, EPOLLERR);
         return;
     }
+    (self->buffer + self->nbuffer)[nread] = '\0';
 
-    p = strstr(self->buffer, "\r\n\r\n");
-    s = p ? (p + strlen("\r\n\r\n") - (self->buffer + self->nbuffer)) : nread;
+    /* serch from start every time, servers (who?) may trim \r\n\r\n */
+    crlf2 = strstr(self->buffer, "\r\n\r\n");
+
+    /* number of bytes need to discard after recv(..., MSG_PEEK) */
+    ndiscard = crlf2
+        ? (crlf2 + strlen("\r\n\r\n") - (self->buffer + self->nbuffer))
+        : nread;
 
     /* discard http response part in socket buffer */
-    if ((nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0)) != s) {
-        fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
+    nread = recv(self->sfd, self->buffer + self->nbuffer, ndiscard, 0);
+    if (nread != ndiscard) {
+        fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, ndiscard);
         abort();
     }
-    self->nbuffer += s;
+    self->nbuffer += ndiscard;
 
     /* handshake not finished */
-    if (!p) {
+    if (!crlf2) {
         /* failed, handshake not finished but buffer full */
         if (self->nbuffer == sizeof(self->buffer) - 1) {
             loglv(0, "Proxy server returned a header that is too large "
