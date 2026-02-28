@@ -203,42 +203,12 @@ void loop_deinit(struct loopctx *loop)
     free(loop);
 }
 
-void loop_poller_init(struct ep_poller *poller, struct loopctx *loop, int fd)
-{
-    poller->loop = loop;
-    poller->fd = fd;
-    poller->events = 0;
-    poller->on_event = NULL;
-}
-
-void loop_poller_ctl(struct ep_poller *poller, int op, unsigned int events,
-                     void (*on_event)(struct ep_poller *, unsigned int))
-{
-    struct epoll_event ev;
-
-    /* if callback is provided, update it */
-    if (on_event) {
-        poller->on_event = on_event;
-    }
-
-    /* always update events */
-    poller->events = events;
-
-    /* do epoll_ctl() */
-    ev.events = events;
-    ev.data.ptr = poller;
-    if (epoll_ctl(poller->loop->epfd, op, poller->fd, &ev) == -1) {
-        fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
-        abort();
-    }
-}
-
 int loop_run(struct loopctx *loop)
 {
     int i, nevent;
     size_t epoch = 0;
     uint64_t expired;
-    struct ep_poller *poller;
+    struct sk_ops *conn;
     struct signalfd_siginfo sig;
     struct epoll_event ev[1]; /* TODO: batch event */
 
@@ -281,8 +251,8 @@ int loop_run(struct loopctx *loop)
                     epoch++;
                 }
             } else {
-                poller = ev[i].data.ptr;
-                poller->on_event(poller, ev[i].events);
+                conn = ev[i].data.ptr;
+                conn->on_event(conn, ev[i].events);
             }
         }
     }

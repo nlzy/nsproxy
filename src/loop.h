@@ -73,21 +73,9 @@ struct sk_ops {
        call to shudown before destory is not required
     */
     void (*destroy)(struct sk_ops *conn);
+
+    /* epoll event callback function
+        called when an epoll event occurs on this connection
+     */
+    void (*on_event)(struct sk_ops *conn, unsigned int event);
 };
-
-struct ep_poller {
-    /* WARNING: Do not modify these members manually.
-       Use loop_epoll_init() / loop_epoll_ctl() instead. */
-
-    /* READ ONLY, once loop_epoll_init() called then never change */
-    struct loopctx *loop;
-    int fd;
-
-    /* READ WRITE, change by loop_epoll_ctl() */
-    unsigned int events;
-    void (*on_event)(struct ep_poller *poller, unsigned int event);
-};
-
-void loop_poller_init(struct ep_poller *poller, struct loopctx *loop, int fd);
-void loop_poller_ctl(struct ep_poller *poller, int op, unsigned int events,
-                     void (*on_event)(struct ep_poller *, unsigned int));

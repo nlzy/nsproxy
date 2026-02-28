@@ -68,7 +68,7 @@ struct conn_socks {
     int type;
 
     int sfd;
-    struct ep_poller poller;
+    unsigned int events;
 
     int phase;
 
@@ -101,6 +101,21 @@ struct socks5addr {
 
 #define SOCKS5_CMD_CONNECT  1
 #define SOCKS5_CMD_UDPASSOC 3
+
+static void socks_epoll_ctl(struct conn_socks *self, int op, unsigned events)
+{
+    struct epoll_event ev;
+
+    self->events = events;
+
+    /* do epoll_ctl() */
+    ev.events = self->events;
+    ev.data.ptr = &self->ops;
+    if (epoll_ctl(loop_epfd(self->loop), op, self->sfd, &ev) == -1) {
+        fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
+        abort();
+    }
+}
 
 /* put socks5 header to buffer,
    return the number of bytes written , or -1 if failed */
@@ -327,7 +342,7 @@ static void socks_handshake_output(struct conn_socks *self)
         case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
     }
 
-    loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN, NULL);
+    socks_epoll_ctl(self, EPOLL_CTL_MOD, EPOLLIN);
 }
 
 static void socks_handshake_input(struct conn_socks *self)
@@ -530,17 +545,17 @@ static void socks_handshake_input(struct conn_socks *self)
 
     /* when control flow reach here, it should finish a step of input phase */
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
-        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLOUT, NULL);
+        socks_epoll_ctl(self, EPOLL_CTL_MOD, EPOLLOUT);
     } else {
         assert(self->phase == PHASE_FORWARDING);
-        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, EPOLLIN | EPOLLOUT, NULL);
+        socks_epoll_ctl(self, EPOLL_CTL_MOD, EPOLLOUT | EPOLLIN);
     }
 }
 
-static void socks_poller_event(struct ep_poller *poller, unsigned int event)
+static void socks_poller_event(struct sk_ops *conn, unsigned int event)
 {
     struct conn_socks *self =
-        container_of(poller, struct conn_socks, poller);
+        container_of(conn, struct conn_socks, ops);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -617,14 +632,10 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         /* it's no need to handshake in udp, start forward packet now */
         self->phase = PHASE_FORWARDING;
         loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
-        loop_poller_init(&self->poller, self->loop, self->sfd);
-        loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN,
-                        &socks_poller_event);
+        socks_epoll_ctl(self, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN);
     } else {
         self->phase = PHASE_SEND_METHOD;
-        loop_poller_init(&self->poller, self->loop, self->sfd);
-        loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLOUT,
-                        &socks_poller_event);
+        socks_epoll_ctl(self, EPOLL_CTL_ADD, EPOLLOUT);
     }
 
     self->addr = strdup(addr);
@@ -662,7 +673,7 @@ static int socks_shutdown(struct sk_ops *conn, int how)
 static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    unsigned int new_events = self->poller.events;
+    unsigned int new_events = self->events;
 
     if (self->phase != PHASE_FORWARDING) {
         return;
@@ -674,9 +685,8 @@ static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
         new_events &= ~event;
     }
 
-    if (new_events != self->poller.events) {
-        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, new_events, NULL);
-    }
+    if (new_events != self->events)
+        socks_epoll_ctl(self, EPOLL_CTL_MOD, new_events);
 }
 
 /* impl for struct sk_ops :: send */
@@ -796,7 +806,7 @@ static void socks_destroy(struct sk_ops *conn)
     loglv(3, "socks_destroy: destroying %s:%u/%s", self->addr,
              (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
-    loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
+    socks_epoll_ctl(self, EPOLL_CTL_DEL, 0);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {
@@ -837,6 +847,7 @@ static struct conn_socks *socks_create_internal(void)
     self->ops.send = &socks_send;
     self->ops.recv = &socks_recv;
     self->ops.destroy = &socks_destroy;
+    self->ops.on_event = &socks_poller_event;
 
     self->sfd = -1;
 

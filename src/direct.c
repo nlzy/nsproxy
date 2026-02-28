@@ -22,14 +22,29 @@ struct conn_direct {
     uint16_t port;
 
     int sfd;
-    struct ep_poller poller;
+    unsigned int events;
 };
 
+static void direct_epoll_ctl(struct conn_direct *self, int op, unsigned events)
+{
+    struct epoll_event ev;
+
+    self->events = events;
+
+    /* do epoll_ctl() */
+    ev.events = self->events;
+    ev.data.ptr = &self->ops;
+    if (epoll_ctl(loop_epfd(self->loop), op, self->sfd, &ev) == -1) {
+        fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
+        abort();
+    }
+}
+
 /* epoll event callback, just forward event to user */
-static void direct_poller_event(struct ep_poller *poller, unsigned int event)
+static void direct_poller_event(struct sk_ops *conn, unsigned int event)
 {
     struct conn_direct *self =
-        container_of(poller, struct conn_direct, poller);
+        container_of(conn, struct conn_direct, ops);
     self->userev(self->userp, event);
 }
 
@@ -80,10 +95,6 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     freeaddrinfo(result);
 
-    loop_poller_init(&self->poller, self->loop, self->sfd);
-    loop_poller_ctl(&self->poller, EPOLL_CTL_ADD, EPOLLIN | EPOLLOUT,
-                    &direct_poller_event);
-
     self->addr = strdup(addr);
     self->port = port;
 
@@ -92,6 +103,8 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     } else {
         loglv(1, "Connected %s:%u/tcp", addr, (unsigned)port);
     }
+
+    direct_epoll_ctl(self, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN);
 
     return 0;
 }
@@ -121,7 +134,7 @@ static int direct_shutdown(struct sk_ops *conn, int how)
 static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-    unsigned int new_events = self->poller.events;
+    unsigned int new_events = self->events;
 
     if (enable) {
         new_events |= event;
@@ -129,9 +142,8 @@ static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
         new_events &= ~event;
     }
 
-    if (new_events != self->poller.events) {
-        loop_poller_ctl(&self->poller, EPOLL_CTL_MOD, new_events, NULL);
-    }
+    if (new_events != self->events)
+        direct_epoll_ctl(self, EPOLL_CTL_MOD, new_events);
 }
 
 /* impl for struct sk_ops :: send */
@@ -186,7 +198,7 @@ static void direct_destroy(struct sk_ops *conn)
     loglv(3, "direct_destroy: destroying %s:%u/%s",
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
-    loop_poller_ctl(&self->poller, EPOLL_CTL_DEL, 0, NULL);
+    direct_epoll_ctl(self, EPOLL_CTL_DEL, 0);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {
@@ -225,6 +237,7 @@ static struct conn_direct *direct_create_internel(void)
     self->ops.send = &direct_send;
     self->ops.recv = &direct_recv;
     self->ops.destroy = &direct_destroy;
+    self->ops.on_event = &direct_poller_event;
 
     return self;
 }
