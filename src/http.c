@@ -121,8 +121,7 @@ static void http_handshake_phase_2(struct ep_poller *poller, unsigned int event)
 
     loglv(3, "http_handshake_phase_2: receiving response");
 
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        loglv(0, "Proxy connection closed unexpectedly during HTTP handshake.");
+    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
@@ -199,7 +198,7 @@ static void http_handshake_phase_1(struct ep_poller *poller, unsigned int event)
 
     loglv(3, "http_handshake_phase_1: sending request");
 
-    if (event & EPOLLERR) {
+    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
         self->userev(self->userp, EPOLLERR);
         return;
     }

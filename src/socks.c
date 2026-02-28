@@ -537,7 +537,7 @@ static void socks_handshake_event(struct ep_poller *poller, unsigned int event)
              self->addr, (unsigned)self->port,
              self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 
-    if (event & (EPOLLERR | EPOLLHUP)) {
+    if ((event & (EPOLLERR | EPOLLHUP)) && !(event & EPOLLIN)) {
         self->userev(self->userp, EPOLLERR);
         return;
     }
