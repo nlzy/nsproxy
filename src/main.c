@@ -646,10 +646,10 @@ int main(int argc, char *argv[])
         conf.dnstype = DNS_REDIR_OFF;
     } else if (strstr(dns, "tcp://") == dns) {
         conf.dnstype = DNS_REDIR_TCP;
-        strncpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv) - 1);
+        strlcpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv));
     } else if (strstr(dns, "udp://") == dns) {
         conf.dnstype = DNS_REDIR_UDP;
-        strncpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv) - 1);
+        strlcpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv));
     } else {
         fprintf(stderr, "nsproxy: unsupported dns server address.\n");
         exit(EXIT_FAILURE);

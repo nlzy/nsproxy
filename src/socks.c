@@ -293,7 +293,7 @@ static void socks_handshake_output(struct conn_socks *self)
             static_assert(sizeof(self->buffer) >= sizeof(hdr) + sizeof(ad.addr)
                               + 3, "???");
 
-            strncpy(ad.addr, self->addr, sizeof(ad.addr) - 1);
+            strlcpy(ad.addr, self->addr, sizeof(ad.addr));
             ad.port = self->port;
 
             ret = socks5_hdr_put(self->buffer + self->nbuffer,
@@ -441,7 +441,7 @@ static void socks_handshake_input(struct conn_socks *self)
 
 
     if (self->phase == PHASE_RECV_REPLY) {
-        struct socks5hdr hdr;
+        struct socks5hdr hdr = { 0 };
         struct socks5addr ad;
         ssize_t s;
         int pass; /* did handshake finished? */
@@ -696,7 +696,7 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         size_t offset = 0;
         ssize_t ret;
 
-        strncpy(addr.addr, self->addr, sizeof(addr.addr) - 1);
+        strlcpy(addr.addr, self->addr, sizeof(addr.addr));
         addr.port = self->port;
 
         ret = socks5_hdr_put(buffer + offset, sizeof(buffer) - offset, &hdr);
