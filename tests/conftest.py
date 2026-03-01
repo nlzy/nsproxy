@@ -3,9 +3,6 @@ import time
 import pytest
 import socket
 import os
-import random
-import threading
-import string
 
 # Configuration
 NSPROXY_PATH = "./build/nsproxy"
@@ -30,9 +27,6 @@ SOCKS_AUTH_PORT = 31081
 HTTP_NOAUTH_PORT = 38080
 HTTP_AUTH_PORT = 38081
 
-TCP_PORT = 39000  # Target server port
-UDP_PORT = 39001  # Target server port
-
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -47,100 +41,6 @@ def get_local_ip():
 
 
 LOCAL_IP = get_local_ip()
-
-
-def tcp_bi_transfer(nsproxy_runner, extra_args, data_size=100 * 1024):
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(("0.0.0.0", TCP_PORT))
-    server_sock.listen(1)
-
-    client_send_data = "".join(
-        random.choices(string.ascii_letters, k=data_size)
-    ).encode("ascii")
-    server_send_data = "".join(
-        random.choices(string.ascii_letters, k=data_size)
-    ).encode("ascii")
-
-    received_by_server = bytearray()
-
-    def server_thread():
-        try:
-            server_sock.settimeout(10)
-            conn, addr = server_sock.accept()
-            conn.settimeout(5)
-            # Read all
-            while len(received_by_server) < data_size:
-                chunk = conn.recv(min(4096, data_size - len(received_by_server)))
-                if not chunk:
-                    break
-                received_by_server.extend(chunk)
-            # Send all
-            conn.sendall(server_send_data)
-            conn.close()
-        except Exception as e:
-            pass  # Error will be caught by assertions in main thread
-        finally:
-            server_sock.close()
-
-    t = threading.Thread(target=server_thread)
-    t.start()
-
-    try:
-        client_args = extra_args + ["nc", "-w", "2", LOCAL_IP, str(TCP_PORT)]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(input=client_send_data, timeout=20)
-
-        t.join(timeout=10)
-
-        assert len(received_by_server) == data_size, (
-            f"Server only received {len(received_by_server)} bytes"
-        )
-        assert received_by_server == client_send_data
-        assert len(stdout) == data_size, f"Client only received {len(stdout)} bytes"
-        assert stdout == server_send_data
-        assert client.returncode == 0
-    finally:
-        server_sock.close()
-
-
-def udp_bi_transfer(nsproxy_runner, extra_args, data_size=1024):
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(("0.0.0.0", UDP_PORT))
-
-    client_send_data = os.urandom(data_size)
-    server_send_data = os.urandom(data_size)
-
-    received_by_server = []
-
-    def server_thread():
-        try:
-            server_sock.settimeout(10)
-            data, addr = server_sock.recvfrom(data_size + 100)
-            received_by_server.append(data)
-            server_sock.sendto(server_send_data, addr)
-        except Exception as e:
-            pass
-        finally:
-            server_sock.close()
-
-    t = threading.Thread(target=server_thread)
-    t.start()
-
-    try:
-        client_args = extra_args + ["nc", "-u", "-w", "2", LOCAL_IP, str(UDP_PORT)]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(input=client_send_data, timeout=20)
-
-        t.join(timeout=10)
-
-        assert len(received_by_server) > 0, "Server received no data"
-        assert received_by_server[0] == client_send_data
-        assert stdout == server_send_data
-        assert client.returncode == 0
-    finally:
-        server_sock.close()
 
 
 @pytest.fixture(
