@@ -123,10 +123,9 @@ def proxy_server(request):
 
     time.sleep(0.5)
     yield (proc_noauth, proc_auth)
-    proc_noauth.terminate()
-    proc_noauth.wait()
-    proc_auth.terminate()
-    proc_auth.wait()
+    for proc in [proc_noauth, proc_auth]:
+        proc.kill()
+        proc.wait()
 
 
 @pytest.fixture(params=["normal", "valgrind"], ids=["normal", "valgrind"])
