@@ -9,9 +9,10 @@ suite consists of three core components:
    It receives data from the client and sends a response back.
 
 2. Proxy Servers
-   Support for v2ray and sing-box as proxy servers.
-   SOCKS5 proxy listens on 31080 (no auth) and 31081 (auth).
-   HTTP proxy listens on 38080 (no auth) and 38081 (auth).
+   Support for v2ray or sing-box as proxy server.
+   One proxy server instance listens on all 4 ports:
+   - SOCKS5 on 31080 (no auth) and 31081 (auth)
+   - HTTP on 38080 (no auth) and 38081 (auth)
 
 3. Application
    The ping-pong client that runs inside a network namespace via nsproxy.

@@ -2,6 +2,12 @@
   "inbounds": [
     {
       "type": "socks",
+      "tag": "socks-noauth",
+      "listen": "127.0.0.1",
+      "listen_port": 31080
+    },
+    {
+      "type": "socks",
       "tag": "socks-auth",
       "listen": "127.0.0.1",
       "listen_port": 31081,
@@ -11,6 +17,12 @@
           "password": "testpass"
         }
       ]
+    },
+    {
+      "type": "http",
+      "tag": "http-noauth",
+      "listen": "127.0.0.1",
+      "listen_port": 38080
     },
     {
       "type": "http",

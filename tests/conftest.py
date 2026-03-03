@@ -9,13 +9,11 @@ NSPROXY_PATH = "./build/nsproxy"
 
 # v2ray Configuration
 PROXY_V2RAY_PATH = "v2ray"
-PROXY_V2RAY_NOAUTH_CONFIG = "tests/conf/v2ray_noauth.json"
-PROXY_V2RAY_AUTH_CONFIG = "tests/conf/v2ray_auth.json"
+PROXY_V2RAY_CONFIG = "tests/conf/v2ray.json"
 
 # singbox Configuration
 PROXY_SINGBOX_PATH = "sing-box"
-PROXY_SINGBOX_NOAUTH_CONFIG = "tests/conf/singbox_noauth.json"
-PROXY_SINGBOX_AUTH_CONFIG = "tests/conf/singbox_auth.json"
+PROXY_SINGBOX_CONFIG = "tests/conf/singbox.json"
 
 SOCKS_NOAUTH_PORT = 31080
 SOCKS_AUTH_PORT = 31081
@@ -47,57 +45,28 @@ def proxy_server(request):
     proxy_type = request.param
 
     if proxy_type == "v2ray":
-        # Check v2ray config files
-        if not os.path.exists(PROXY_V2RAY_NOAUTH_CONFIG):
-            pytest.fail(
-                f"v2ray noauth config file not found at {PROXY_V2RAY_NOAUTH_CONFIG}"
-            )
-        if not os.path.exists(PROXY_V2RAY_AUTH_CONFIG):
-            pytest.fail(
-                f"v2ray auth config file not found at {PROXY_V2RAY_AUTH_CONFIG}"
-            )
+        if not os.path.exists(PROXY_V2RAY_CONFIG):
+            pytest.fail(f"v2ray config file not found at {PROXY_V2RAY_CONFIG}")
 
-        # Start v2ray noauth
-        proc_noauth = subprocess.Popen(
-            [PROXY_V2RAY_PATH, "run", "-c", PROXY_V2RAY_NOAUTH_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        # Start v2ray auth
-        proc_auth = subprocess.Popen(
-            [PROXY_V2RAY_PATH, "run", "-c", PROXY_V2RAY_AUTH_CONFIG],
+        proc = subprocess.Popen(
+            [PROXY_V2RAY_PATH, "run", "-c", PROXY_V2RAY_CONFIG],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
     else:  # singbox
-        # Check singbox config files
-        if not os.path.exists(PROXY_SINGBOX_NOAUTH_CONFIG):
-            pytest.fail(
-                f"singbox noauth config file not found at {PROXY_SINGBOX_NOAUTH_CONFIG}"
-            )
-        if not os.path.exists(PROXY_SINGBOX_AUTH_CONFIG):
-            pytest.fail(
-                f"singbox auth config file not found at {PROXY_SINGBOX_AUTH_CONFIG}"
-            )
+        if not os.path.exists(PROXY_SINGBOX_CONFIG):
+            pytest.fail(f"singbox config file not found at {PROXY_SINGBOX_CONFIG}")
 
-        # Start singbox noauth
-        proc_noauth = subprocess.Popen(
-            [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_NOAUTH_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        # Start singbox auth
-        proc_auth = subprocess.Popen(
-            [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_AUTH_CONFIG],
+        proc = subprocess.Popen(
+            [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_CONFIG],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
 
     time.sleep(0.5)
-    yield (proc_noauth, proc_auth)
-    for proc in [proc_noauth, proc_auth]:
-        proc.kill()
-        proc.wait()
+    yield proc
+    proc.kill()
+    proc.wait()
 
 
 @pytest.fixture(params=["normal", "valgrind"], ids=["normal", "valgrind"])
@@ -131,16 +100,10 @@ def nsproxy_runner(request, execution_mode):
             cmd.append("-vvv")
         cmd.extend(args)
 
-        # When verbose is enabled, we don't want to capture stdout/stderr
-        # so they can be seen in real-time or via pytest -s
-        # However, subprocess.Popen with PIPE is still needed if we want to
-        # manipulate them or use .communicate() like existing tests do.
-
         proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
 
-        # If not capturing, communicate() will return (None, None)
         original_communicate = proc.communicate
 
         def communicate_with_check(*args, **kwargs):
@@ -151,7 +114,6 @@ def nsproxy_runner(request, execution_mode):
                 if stderr:
                     print(stderr.decode(errors="replace"), end="")
             if use_valgrind and proc.returncode == 100:
-                # If we were capturing, we can show the error
                 if stderr:
                     err_msg = stderr.decode(errors="replace")
                     pytest.fail(f"Valgrind detected memory leaks or errors:\n{err_msg}")

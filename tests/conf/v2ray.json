@@ -1,6 +1,15 @@
 {
   "inbounds": [
     {
+      "port": 31080,
+      "listen": "127.0.0.1",
+      "protocol": "socks",
+      "settings": {
+        "udp": true,
+        "auth": "noauth"
+      }
+    },
+    {
       "port": 31081,
       "listen": "127.0.0.1",
       "protocol": "socks",
@@ -10,6 +19,14 @@
         "accounts": [
           { "user": "testuser", "pass": "testpass" }
         ]
+      }
+    },
+    {
+      "port": 38080,
+      "listen": "127.0.0.1",
+      "protocol": "http",
+      "settings": {
+        "auth": "noauth"
       }
     },
     {
