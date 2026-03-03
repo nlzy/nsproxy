@@ -7,11 +7,6 @@ import os
 # Configuration
 NSPROXY_PATH = "./build/nsproxy"
 
-# 3proxy Configuration
-PROXY_3PROXY_PATH = "3proxy"
-PROXY_3PROXY_NOAUTH_CONFIG = "tests/conf/3proxy_noauth.cfg"
-PROXY_3PROXY_AUTH_CONFIG = "tests/conf/3proxy_auth.cfg"
-
 # v2ray Configuration
 PROXY_V2RAY_PATH = "v2ray"
 PROXY_V2RAY_NOAUTH_CONFIG = "tests/conf/v2ray_noauth.json"
@@ -45,36 +40,13 @@ LOCAL_IP = get_local_ip()
 
 @pytest.fixture(
     scope="module",
-    params=["3proxy", "v2ray", "singbox"],
-    ids=["3proxy", "v2ray", "singbox"],
+    params=["v2ray", "singbox"],
+    ids=["v2ray", "singbox"],
 )
 def proxy_server(request):
     proxy_type = request.param
 
-    if proxy_type == "3proxy":
-        # Check 3proxy config files
-        if not os.path.exists(PROXY_3PROXY_NOAUTH_CONFIG):
-            pytest.fail(
-                f"3proxy noauth config file not found at {PROXY_3PROXY_NOAUTH_CONFIG}"
-            )
-        if not os.path.exists(PROXY_3PROXY_AUTH_CONFIG):
-            pytest.fail(
-                f"3proxy auth config file not found at {PROXY_3PROXY_AUTH_CONFIG}"
-            )
-
-        # Start 3proxy noauth
-        proc_noauth = subprocess.Popen(
-            [PROXY_3PROXY_PATH, PROXY_3PROXY_NOAUTH_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        # Start 3proxy auth
-        proc_auth = subprocess.Popen(
-            [PROXY_3PROXY_PATH, PROXY_3PROXY_AUTH_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-    elif proxy_type == "v2ray":
+    if proxy_type == "v2ray":
         # Check v2ray config files
         if not os.path.exists(PROXY_V2RAY_NOAUTH_CONFIG):
             pytest.fail(

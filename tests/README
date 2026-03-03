@@ -9,7 +9,7 @@ suite consists of three core components:
    It receives data from the client and sends a response back.
 
 2. Proxy Servers
-   Support for 3proxy, v2ray, and sing-box as proxy servers.
+   Support for v2ray and sing-box as proxy servers.
    SOCKS5 proxy listens on 31080 (no auth) and 31081 (auth).
    HTTP proxy listens on 38080 (no auth) and 38081 (auth).
 
@@ -21,7 +21,7 @@ suite consists of three core components:
 REQUIREMENTS
 ----------
 
- - 3proxy OR v2ray OR sing-box (installed and in PATH)
+ - v2ray OR sing-box (installed and in PATH)
  - Python 3 with pytest
 
 
