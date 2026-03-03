@@ -10,9 +10,11 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -368,6 +370,14 @@ static int parent(int sk, struct loopconf *conf)
     sigset_t mask;
     struct loopctx *loop;
     char dummy = '\0';
+
+    /* become a subreaper, receive SIGCHLD for grandchilds */
+    if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == -1) {
+        loglv(0, "Warning: Failed to set child subreaper, "
+                 "grandchild processes may not be tracked.");
+    } else {
+        loglv(3, "parent: set as child subreaper");
+    }
 
     tunfd = recv_fd(sk);
 

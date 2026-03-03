@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <sys/uio.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -121,6 +122,55 @@ static err_t tunif_init(struct netif *netif)
     return ERR_OK;
 }
 
+/* handle SIGCHLD, nsproxy exits after all child processes exit */
+static void sigfd_handler(struct loopctx *loop)
+{
+    struct signalfd_siginfo sig;
+    pid_t pid;
+    int status;
+    int exitcode = 0;
+
+    if (read(loop->sigfd, &sig, sizeof(sig)) == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return;
+        }
+        perror("read(sigfd)");
+        abort();
+    }
+
+    /* we never add signals other than SIGCHLD to the sigmask,
+       this should not happen */
+    if (sig.ssi_signo != SIGCHLD)
+        return;
+
+    /* reap all exited children */
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (WIFEXITED(status)) {
+            exitcode = WEXITSTATUS(status);
+            loglv(1, "Child process %d exited with status %d",
+                     pid, exitcode);
+        } else if (WIFSIGNALED(status)) {
+            exitcode = 128 + WTERMSIG(status);
+            loglv(1, "Child process %d killed by signal %d",
+                     pid, WTERMSIG(status));
+        }
+    }
+
+    /* no child could be reaped, may some still running, or all exited */
+
+    if (pid == 0) {
+        /* still running, continue event loop */
+        return;
+    } else if (errno == ECHILD) {
+        /* all exited, exit nsproxy */
+        loglv(1, "All child exited, nsproxy is closing. Bye ~");
+        loop_deinit(loop);
+        exit(exitcode);
+    } else {
+        loglv(3, "waitpid() failed: %s", strerror(errno));
+    }
+}
+
 void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
                int sigfd)
 {
@@ -209,7 +259,6 @@ int loop_run(struct loopctx *loop)
     size_t epoch = 0;
     uint64_t expired;
     struct sk_ops *conn;
-    struct signalfd_siginfo sig;
     struct epoll_event ev[1]; /* TODO: batch event */
 
     for (;;) {
@@ -224,17 +273,7 @@ int loop_run(struct loopctx *loop)
             if (ev[i].data.ptr == &loop->tunfd) {
                 tun_input(&loop->tunif);
             } else if (ev[i].data.ptr == &loop->sigfd) {
-                if (read(loop->sigfd, &sig, sizeof(sig)) == -1) {
-                    perror("read()");
-                    abort();
-                }
-                if (sig.ssi_signo == SIGCHLD &&
-                    (sig.ssi_code == CLD_EXITED || sig.ssi_code == CLD_KILLED ||
-                     sig.ssi_code == CLD_DUMPED)) {
-                    loglv(1, "nsproxy is closing. Bye~");
-                    loop_deinit(loop);
-                    return 0;
-                }
+                sigfd_handler(loop);
             } else if (ev[i].data.ptr == &loop->timerfd) {
                 if (read(loop->timerfd, &expired, sizeof(expired)) == -1) {
                     perror("read()");
