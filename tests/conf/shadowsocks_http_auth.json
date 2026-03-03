@@ -1,0 +1,10 @@
+{
+  "basic": {
+    "users": [
+      {
+        "user_name": "testuser",
+        "password": "testpass"
+      }
+    ]
+  }
+}

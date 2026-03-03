@@ -15,6 +15,12 @@ PROXY_V2RAY_CONFIG = "tests/conf/v2ray.json"
 PROXY_SINGBOX_PATH = "sing-box"
 PROXY_SINGBOX_CONFIG = "tests/conf/singbox.json"
 
+# shadowsocks-rust Configuration
+PROXY_SS_SERVER_PATH = "ssserver"
+PROXY_SS_LOCAL_PATH = "sslocal"
+PROXY_SS_SERVER_CONFIG = "tests/conf/shadowsocks_server.json"
+PROXY_SS_LOCAL_CONFIG = "tests/conf/shadowsocks_local.json"
+
 SOCKS_NOAUTH_PORT = 31080
 SOCKS_AUTH_PORT = 31081
 HTTP_NOAUTH_PORT = 38080
@@ -38,11 +44,12 @@ LOCAL_IP = get_local_ip()
 
 @pytest.fixture(
     scope="module",
-    params=["v2ray", "singbox"],
-    ids=["v2ray", "singbox"],
+    params=["v2ray", "singbox", "shadowsocks"],
+    ids=["v2ray", "singbox", "shadowsocks"],
 )
 def proxy_server(request):
     proxy_type = request.param
+    procs = []
 
     if proxy_type == "v2ray":
         if not os.path.exists(PROXY_V2RAY_CONFIG):
@@ -53,7 +60,9 @@ def proxy_server(request):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-    else:  # singbox
+        procs.append(proc)
+
+    elif proxy_type == "singbox":
         if not os.path.exists(PROXY_SINGBOX_CONFIG):
             pytest.fail(f"singbox config file not found at {PROXY_SINGBOX_CONFIG}")
 
@@ -62,11 +71,43 @@ def proxy_server(request):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        procs.append(proc)
+
+    else:  # shadowsocks
+        # Check config files
+        if not os.path.exists(PROXY_SS_SERVER_CONFIG):
+            pytest.fail(
+                f"shadowsocks server config not found at {PROXY_SS_SERVER_CONFIG}"
+            )
+        if not os.path.exists(PROXY_SS_LOCAL_CONFIG):
+            pytest.fail(
+                f"shadowsocks local config not found at {PROXY_SS_LOCAL_CONFIG}"
+            )
+
+        # Start ssserver first
+        proc_server = subprocess.Popen(
+            [PROXY_SS_SERVER_PATH, "-c", PROXY_SS_SERVER_CONFIG],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        procs.append(proc_server)
+
+        # Wait for server to start
+        time.sleep(0.3)
+
+        # Start sslocal
+        proc_local = subprocess.Popen(
+            [PROXY_SS_LOCAL_PATH, "-c", PROXY_SS_LOCAL_CONFIG],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        procs.append(proc_local)
 
     time.sleep(0.5)
-    yield proc
-    proc.kill()
-    proc.wait()
+    yield procs
+    for proc in procs:
+        proc.kill()
+        proc.wait()
 
 
 @pytest.fixture(params=["normal", "valgrind"], ids=["normal", "valgrind"])

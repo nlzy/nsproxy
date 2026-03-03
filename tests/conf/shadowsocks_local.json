@@ -1,0 +1,33 @@
+{
+  "locals": [
+    {
+      "protocol": "socks",
+      "local_address": "127.0.0.1",
+      "local_port": 31080,
+      "mode": "tcp_and_udp"
+    },
+    {
+      "protocol": "socks",
+      "local_address": "127.0.0.1",
+      "local_port": 31081,
+      "mode": "tcp_and_udp",
+      "socks5_auth_config_path": "tests/conf/shadowsocks_socks5_auth.json"
+    },
+    {
+      "protocol": "http",
+      "local_address": "127.0.0.1",
+      "local_port": 38080
+    },
+    {
+      "protocol": "http",
+      "local_address": "127.0.0.1",
+      "local_port": 38081,
+      "http_auth_config_path": "tests/conf/shadowsocks_http_auth.json"
+    }
+  ],
+  "server": "127.0.0.1",
+  "server_port": 18388,
+  "password": "testpassword123",
+  "method": "aes-256-gcm",
+  "mode": "tcp_and_udp"
+}
