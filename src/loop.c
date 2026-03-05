@@ -290,16 +290,27 @@ int loop_run(struct loopctx *loop)
                     epoch++;
                 }
             } else {
-                conn = ev[i].data.ptr;
-                conn->on_event(conn, ev[i].events);
+                struct epcb_ops *epcb = ev[i].data.ptr;
+                epcb->on_epoll_events(epcb, ev[i].events);
             }
         }
     }
 }
 
-int loop_epfd(struct loopctx *loop)
+void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
+                    struct epcb_ops *epcb)
 {
-    return loop->epfd;
+    struct epoll_event ev;
+    ev.events = events;
+    ev.data.ptr = epcb;
+    if (epoll_ctl(loop->epfd, op, fd, &ev) == -1) {
+        if (errno == EEXIST) {
+            loglv(3, "loop_epoll_ctl: fd %d is registered already", fd);
+        } else {
+            fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
+            abort();
+        }
+    }
 }
 
 struct loopconf *loop_conf(struct loopctx *loop)

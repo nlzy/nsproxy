@@ -14,6 +14,8 @@ struct conn_direct {
     struct sk_ops ops;
     struct loopctx *loop;
 
+    struct epcb_ops epcb;
+
     int refcnt;
 
     void (*userev)(void *userp, unsigned int event);
@@ -30,27 +32,12 @@ struct conn_direct {
     size_t nread;
 };
 
-static void direct_epoll_ctl(struct conn_direct *self, int op, unsigned events)
-{
-    struct epoll_event ev;
-
-    self->events = events;
-
-    /* do epoll_ctl() */
-    ev.events = self->events;
-    ev.data.ptr = &self->ops;
-    if (epoll_ctl(loop_epfd(self->loop), op, self->sfd, &ev) == -1) {
-        fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
-        abort();
-    }
-}
-
 /* epoll event callback, just forward event to user */
-static void direct_poller_event(struct sk_ops *conn, unsigned int event)
+static void direct_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct conn_direct *self =
-        container_of(conn, struct conn_direct, ops);
-    self->userev(self->userp, event);
+        container_of(epcb, struct conn_direct, epcb);
+    self->userev(self->userp, events);
 }
 
 /* impl for struct sk_ops :: connect */
@@ -109,7 +96,8 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         loglv(1, "Connected %s:%u/tcp", addr, (unsigned)port);
     }
 
-    direct_epoll_ctl(self, EPOLL_CTL_ADD, EPOLLOUT | EPOLLIN);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT | EPOLLIN,
+                   &self->epcb);
 
     return 0;
 }
@@ -148,7 +136,8 @@ static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
     }
 
     if (new_events != self->events)
-        direct_epoll_ctl(self, EPOLL_CTL_MOD, new_events);
+        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, new_events,
+                       &self->epcb);
 }
 
 /* impl for struct sk_ops :: send */
@@ -203,7 +192,7 @@ static void direct_destroy_internal(struct conn_direct *self)
     loglv(3, "direct_destroy_internal: destroying %s:%u/%s",
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
 
-    direct_epoll_ctl(self, EPOLL_CTL_DEL, 0);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_DEL, self->sfd, 0, NULL);
 
     if (shutdown(self->sfd, SHUT_RDWR) == -1) {
         if (!is_ignored_skerr(errno)) {
@@ -260,7 +249,7 @@ static struct conn_direct *direct_create_internel(void)
     self->ops.recv = &direct_recv;
     self->ops.get = &direct_get;
     self->ops.put = &direct_put;
-    self->ops.on_event = &direct_poller_event;
+    self->epcb.on_epoll_events = &direct_epcb_events;
 
     self->refcnt = 1;
 

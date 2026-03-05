@@ -29,7 +29,6 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
                int sigfd);
 void loop_deinit(struct loopctx *loop);
 int loop_run(struct loopctx *loop);
-int loop_epfd(struct loopctx *loop);
 struct loopconf *loop_conf(struct loopctx *loop);
 
 /* A pointer to struct sk_ops representing a connection.
@@ -85,3 +84,10 @@ struct sk_ops {
      */
     void (*on_event)(struct sk_ops *conn, unsigned int event);
 };
+
+struct epcb_ops {
+    void (*on_epoll_events)(struct epcb_ops *conn, unsigned int events);
+};
+
+void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
+                    struct epcb_ops *epcb);
