@@ -251,7 +251,7 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
 
 static void socks_handshake_output(struct conn_socks *self)
 {
-    struct loopconf *conf = loop_conf(self->loop);
+    struct nspconf *conf = current_nspconf();
     ssize_t nsent;
 
     /* it's first called to this phase, assembly buffer */
@@ -583,7 +583,7 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    struct loopconf *conf = loop_conf(self->loop);
+    struct nspconf *conf = current_nspconf();
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     int sktype = self->type == UDP_FORWARD ? SOCK_DGRAM : SOCK_STREAM;

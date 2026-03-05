@@ -162,6 +162,7 @@ static void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
 static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct nspconf *conf = current_nspconf();
     struct conn_tcpdns_worker *worker;
     uint16_t sizebe;
 
@@ -181,10 +182,10 @@ static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     memcpy(worker->buffer + 2, data, size);
     worker->nbuffer = size + 2;
 
-    if (loop_conf(master->loop)->proxytype == PROXY_SOCKS5)
+    if (conf->proxytype == PROXY_SOCKS5)
         worker->proxy =
             socks_tcp_create(master->loop, &tcpdns_worker_handle_event, worker);
-    else if (loop_conf(master->loop)->proxytype == PROXY_HTTP)
+    else if (conf->proxytype == PROXY_HTTP)
         worker->proxy =
             http_tcp_create(master->loop, &tcpdns_worker_handle_event, worker);
     else

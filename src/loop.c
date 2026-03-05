@@ -31,7 +31,6 @@ struct loopctx {
     int epfd;
     int timerfd;
     struct netif tunif;
-    struct loopconf conf;
 };
 
 static void tun_input(struct netif *tunif)
@@ -172,8 +171,7 @@ static void sigfd_handler(struct loopctx *loop)
     }
 }
 
-void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
-               int sigfd)
+void loop_init(struct loopctx **loop, int tunfd, int sigfd)
 {
     struct loopctx *p;
     struct epoll_event ev;
@@ -236,8 +234,6 @@ void loop_init(struct loopctx **loop, struct loopconf *conf, int tunfd,
     netif_set_default(&p->tunif);
     netif_set_link_up(&p->tunif);
     netif_set_up(&p->tunif);
-
-    memcpy(&p->conf, conf, sizeof(p->conf));
 
     loglv(3, "loop_init: lwIP and event loop initialized");
 
@@ -312,9 +308,4 @@ void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
             abort();
         }
     }
-}
-
-struct loopconf *loop_conf(struct loopctx *loop)
-{
-    return &loop->conf;
 }

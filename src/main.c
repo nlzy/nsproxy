@@ -22,6 +22,7 @@
 #include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
+struct nspconf *nsproxy_current_nspconf__ = NULL;
 
 static void print_help(void)
 {
@@ -363,7 +364,7 @@ static int recv_fd(int sock)
    2. Start event loop, the event loop will handle IP packets from TUN
       device and forward traffic to proxy server.
 */
-static int parent(int sk, struct loopconf *conf)
+static int parent(int sk)
 {
     int tunfd;
     int childfd;
@@ -399,41 +400,6 @@ static int parent(int sk, struct loopconf *conf)
         abort();
     }
 
-    if (nsproxy_verbose_level__ >= 0) {
-        char const *ptype, *pserv, *pport, *dnstype, *dnsserv;
-        char const pcolon = conf->proxytype == PROXY_DIRECT ? ' ' : ':';
-
-        if (conf->proxytype == PROXY_SOCKS5) {
-            ptype = "socks5://";
-            pserv = conf->proxysrv;
-            pport = conf->proxyport;
-        } else if (conf->proxytype == PROXY_HTTP) {
-            ptype = "http://";
-            pserv = conf->proxysrv;
-            pport = conf->proxyport;
-        } else {
-            ptype = "(direct)";
-            pserv = "";
-            pport = "";
-        }
-
-        if (conf->dnstype == DNS_REDIR_OFF) {
-            dnstype = "off";
-            dnsserv = "";
-        } else if (conf->dnstype == DNS_REDIR_TCP) {
-            dnstype = "tcp://";
-            dnsserv = conf->dnssrv;
-        } else {
-            dnstype = "udp://";
-            dnsserv = conf->dnssrv;
-        }
-
-        loglv(0, "Proxy Server:     %s%s%c%s", ptype, pserv, pcolon, pport);
-        loglv(0, "DNS Redirection:  %s%s", dnstype, dnsserv);
-        loglv(0, "Verbose:          %s",
-              nsproxy_verbose_level__ > 0 ? "yes" : "no");
-    }
-
     /* write a byte after sigmask is set, indicate set up completely */
     if (write(sk, &dummy, sizeof(dummy)) == -1) {
         perror("write()");
@@ -444,7 +410,7 @@ static int parent(int sk, struct loopconf *conf)
 
     loglv(3, "parent: starting event loop");
 
-    loop_init(&loop, conf, tunfd, childfd);
+    loop_init(&loop, tunfd, childfd);
     return loop_run(loop);
 }
 
@@ -454,11 +420,12 @@ static int parent(int sk, struct loopconf *conf)
    3. Send TUN file descriptor to parent process.
    4. exec(2) target application.
 */
-static int child(int sk, struct loopconf *conf, char *cmd[])
+static int child(int sk, char *cmd[])
 {
     int tunfd;
     char dummy;
     uid_t uid, gid;
+    struct nspconf *conf = current_nspconf();
 
     if (unshare(CLONE_NEWNET) == -1) {
         if (errno == ENOSYS || errno == EINVAL) {
@@ -540,7 +507,7 @@ int main(int argc, char *argv[])
     int skpair[2];
     pid_t cid;
     int opt;
-    struct loopconf conf = { 0 };
+    struct nspconf conf = { 0 };
     const char *serv = NULL;
     const char *port = NULL;
     const char *dns = NULL;
@@ -670,6 +637,44 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    current_nspconf() = &conf;
+
+    /* command line config initialized, print it */
+    if (nsproxy_verbose_level__ >= 0) {
+        char const *ptype, *pserv, *pport, *dnstype, *dnsserv;
+        char const pcolon = conf.proxytype == PROXY_DIRECT ? ' ' : ':';
+
+        if (conf.proxytype == PROXY_SOCKS5) {
+            ptype = "socks5://";
+            pserv = conf.proxysrv;
+            pport = conf.proxyport;
+        } else if (conf.proxytype == PROXY_HTTP) {
+            ptype = "http://";
+            pserv = conf.proxysrv;
+            pport = conf.proxyport;
+        } else {
+            ptype = "(direct)";
+            pserv = "";
+            pport = "";
+        }
+
+        if (conf.dnstype == DNS_REDIR_OFF) {
+            dnstype = "off";
+            dnsserv = "";
+        } else if (conf.dnstype == DNS_REDIR_TCP) {
+            dnstype = "tcp://";
+            dnsserv = conf.dnssrv;
+        } else {
+            dnstype = "udp://";
+            dnsserv = conf.dnssrv;
+        }
+
+        loglv(0, "Proxy Server:     %s%s%c%s", ptype, pserv, pcolon, pport);
+        loglv(0, "DNS Redirection:  %s%s", dnstype, dnsserv);
+        loglv(0, "Verbose:          %s",
+              nsproxy_verbose_level__ > 0 ? "yes" : "no");
+    }
+
     /* main */
     if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
         perror("socketpair()");
@@ -684,10 +689,10 @@ int main(int argc, char *argv[])
     if (cid) {
         loglv(3, "parent: forked child process (pid=%d)", cid);
         close(skpair[1]);
-        return parent(skpair[0], &conf);
+        return parent(skpair[0]);
     } else {
         loglv(3, "child: process started");
         close(skpair[0]);
-        return child(skpair[1], &conf, argv + optind);
+        return child(skpair[1], argv + optind);
     }
 }

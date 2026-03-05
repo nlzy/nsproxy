@@ -281,7 +281,7 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    struct loopconf *conf = loop_conf(self->loop);
+    struct nspconf *conf = current_nspconf();
     struct addrinfo hints = { .ai_family = AF_UNSPEC };
     struct addrinfo *result;
     int const enable = 1;

@@ -148,7 +148,8 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 void core_udp_new(struct udp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
-    struct loopconf *conf = loop_conf(loop);
+    struct nspconf *conf = current_nspconf();
+    struct udp_forward *fwd;
     char *addr = ipaddr_ntoa(&pcb->local_ip);
     uint16_t port = pcb->local_port;
 
@@ -348,15 +349,16 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 void core_tcp_new(struct tcp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
+    struct nspconf *conf = current_nspconf();
 
     tcp_nagle_disable(pcb);
 
     tcp_sent(pcb, &tcp_lwip_sent);
     tcp_recv(pcb, &tcp_lwip_received);
 
-    if (loop_conf(loop)->proxytype == PROXY_SOCKS5) {
+    if (conf->proxytype == PROXY_SOCKS5) {
         pcb->proxy = socks_tcp_create(loop, &tcp_proxy_io_event, pcb);
-    } else if (loop_conf(loop)->proxytype == PROXY_HTTP) {
+    } else if (conf->proxytype == PROXY_HTTP) {
         pcb->proxy = http_tcp_create(loop, &tcp_proxy_io_event, pcb);
     } else {
         pcb->proxy = direct_tcp_create(loop, &tcp_proxy_io_event, pcb);
