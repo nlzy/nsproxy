@@ -52,7 +52,7 @@
 #include "lwip/ip6_addr.h"
 
 #if NSPROXY_MODIFIED
-#include "loop.h"
+#include "skops.h"
 #endif
 
 #ifdef __cplusplus

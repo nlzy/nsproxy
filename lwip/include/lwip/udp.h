@@ -50,7 +50,7 @@
 #include "lwip/prot/udp.h"
 
 #if NSPROXY_MODIFIED
-#include "loop.h"
+#include "skops.h"
 #endif
 
 #ifdef __cplusplus

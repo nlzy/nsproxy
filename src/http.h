@@ -1,5 +1,5 @@
 #pragma once
-#include "common.h"
+#include "skops.h"
 #include "loop.h"
 
 struct sk_ops *http_tcp_create(struct loopctx *loop,

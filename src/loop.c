@@ -1,4 +1,5 @@
 #include "loop.h"
+#include "skops.h"
 
 #include <endian.h>
 #include <errno.h>
