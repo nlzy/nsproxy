@@ -1233,11 +1233,17 @@ udp_remove(struct udp_pcb *pcb)
     }
   }
 #if NSPROXY_MODIFIED
-  if (pcb->proxy) {
-    pcb->proxy->put(pcb->proxy);
-  }
-  while (pcb->nrcvq --> 0) { /* out of tricks, it's time to bite a lighter. */
-    pbuf_free(pcb->rcvq[pcb->nrcvq]);
+  {
+    struct udp_forward *forward = (struct udp_forward *)pcb->recv_arg;
+    if (forward) {
+      if (forward->proxy) {
+        forward->proxy->put(forward->proxy);
+      }
+      while (forward->nrcvq --> 0) { /* out of tricks, it's time to bite a lighter. */
+        pbuf_free(forward->rcvq[forward->nrcvq]);
+      }
+      free(forward);
+    }
   }
 #endif
   memp_free(MEMP_UDP_PCB, pcb);

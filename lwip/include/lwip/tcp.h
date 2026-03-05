@@ -392,28 +392,11 @@ struct tcp_pcb {
 #endif
 
 #if NSPROXY_MODIFIED
-  /* connection to proxy server */
-  struct sk_ops *proxy;
-
-  /* data sending to application, wait application to ack these data
-     tot_len would never excceed TCP_SND_BUF
-     may be NULL
-  */
-  struct pbuf *sndq;
-
-  /* data received from application, waiting to sent to proxy server
-     tot_len would never excceed TCP_WND
-     may be NULL
-  */
-  struct pbuf *rcvq;
-
   /* remain seconds to destory this pcb, decrease by 1 every second,
      if reach to 0, destory this pcb
   */
   u16_t gc;
 
-  /* upstream proxy server established? if not, don't send ACK to proxied
-     application */
   u8_t proxyestab;
 #endif
 };

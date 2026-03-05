@@ -112,6 +112,10 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/nd6.h"
 
+#if NSPROXY_MODIFIED
+#include "core.h"
+#endif
+
 #include <string.h>
 
 #ifdef LWIP_HOOK_FILENAME
@@ -214,12 +218,18 @@ tcp_free(struct tcp_pcb *pcb)
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
 #if NSPROXY_MODIFIED
-  if (pcb->proxy)
-    pcb->proxy->put(pcb->proxy);
-  if (pcb->sndq)
-    pbuf_free(pcb->sndq);
-  if (pcb->rcvq)
-    pbuf_free(pcb->rcvq);
+  {
+    struct tcp_forward *forward = (struct tcp_forward *)pcb->callback_arg;
+    if (forward) {
+      if (forward->proxy)
+        forward->proxy->put(forward->proxy);
+      if (forward->sndq)
+        pbuf_free(forward->sndq);
+      if (forward->rcvq)
+        pbuf_free(forward->rcvq);
+      free(forward);
+    }
+  }
 #endif
   memp_free(MEMP_TCP_PCB, pcb);
 }

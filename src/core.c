@@ -1,6 +1,7 @@
 #include "core.h"
 
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -16,8 +17,11 @@
 #include "socks.h"
 
 /* try to recv data from proxy server and send to application */
-static void udp_proxy_input(struct sk_ops *proxy, struct udp_pcb *pcb)
+static void udp_proxy_input(struct udp_forward *fwd)
 {
+    struct sk_ops *proxy = fwd->proxy;
+    struct udp_pcb *pcb = fwd->pcb;
+
     for (;;) {
         char buffer[65535];
         ssize_t nread;
@@ -44,21 +48,22 @@ static void udp_proxy_input(struct sk_ops *proxy, struct udp_pcb *pcb)
     }
 }
 
-/* try to send data to proxy server, data already in pcb->rcvq */
-static void udp_proxy_output(struct sk_ops *proxy, struct udp_pcb *pcb)
+/* try to send data to proxy server, data already in fwd->rcvq */
+static void udp_proxy_output(struct udp_forward *fwd)
 {
+    struct sk_ops *proxy = fwd->proxy;
     char buffer[65535];
     ssize_t i, nsent;
     struct pbuf *p;
 
     /* send all */
-    for (i = 0; i < pcb->nrcvq; i++) {
-        p = pcb->rcvq[i];
+    for (i = 0; i < fwd->nrcvq; i++) {
+        p = fwd->rcvq[i];
         if (p->len == p->tot_len) {
-            nsent = pcb->proxy->send(pcb->proxy, p->payload, p->tot_len);
+            nsent = proxy->send(proxy, p->payload, p->tot_len);
         } else {
             pbuf_copy_partial(p, buffer, p->tot_len, 0);
-            nsent = pcb->proxy->send(pcb->proxy, buffer, p->tot_len);
+            nsent = proxy->send(proxy, buffer, p->tot_len);
         }
 
         if (nsent == -EAGAIN)
@@ -69,11 +74,11 @@ static void udp_proxy_output(struct sk_ops *proxy, struct udp_pcb *pcb)
         pbuf_free(p);
     }
 
-    pcb->nrcvq -= i;
+    fwd->nrcvq -= i;
 
-    if (pcb->nrcvq > 0) {
+    if (fwd->nrcvq > 0) {
         /* EAGAIN happened at i packet*/
-        memmove(pcb->rcvq, pcb->rcvq + i, pcb->nrcvq * sizeof(pcb->rcvq[0]));
+        memmove(fwd->rcvq, fwd->rcvq + i, fwd->nrcvq * sizeof(fwd->rcvq[0]));
         proxy->evctl(proxy, EPOLLOUT, 1);
     } else {
         proxy->evctl(proxy, EPOLLOUT, 0);
@@ -83,25 +88,25 @@ static void udp_proxy_output(struct sk_ops *proxy, struct udp_pcb *pcb)
 /* handle event occured in connection connected to proxy server */
 static void udp_proxy_io_event(void *userp, unsigned int event)
 {
-    struct udp_pcb *pcb = userp;
+    struct udp_forward *fwd = userp;
 
     /* Fatal errors (e.g. ENOMEM) already handled in the impl of sk_ops.
        Other failures (e.g. ECONNABORTED) handled here, others part of this
        program could simplely retry when IO error occured.
     */
     if (event & (EPOLLERR | EPOLLHUP)) {
-        pcb->proxy->put(pcb->proxy);
-        pcb->proxy = NULL;
-        udp_remove(pcb);
+        fwd->proxy->put(fwd->proxy);
+        fwd->proxy = NULL;
+        udp_remove(fwd->pcb);
         return;
     }
 
     if (event & EPOLLIN) {
-        udp_proxy_input(pcb->proxy, pcb);
+        udp_proxy_input(fwd);
     }
 
     if (event & EPOLLOUT) {
-        udp_proxy_output(pcb->proxy, pcb);
+        udp_proxy_output(fwd);
     }
 }
 
@@ -111,7 +116,8 @@ static void udp_proxy_io_event(void *userp, unsigned int event)
 static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                               const ip_addr_t *addr, u16_t port)
 {
-    struct sk_ops *proxy = pcb->proxy;
+    struct udp_forward *fwd = arg;
+    struct sk_ops *proxy = fwd->proxy;
 
     if (!p) {
         /* should not happen */
@@ -130,16 +136,16 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         return;
     }
 
-    if (pcb->nrcvq == arraysizeof(pcb->rcvq)) {
+    if (fwd->nrcvq == arraysizeof(fwd->rcvq)) {
         /* receive queue full, drop oldest data in queue and enqueue this */
-        memmove(pcb->rcvq, pcb->rcvq + 1,
-                (arraysizeof(pcb->rcvq) - 1) * sizeof(pcb->rcvq[0]));
-        pcb->rcvq[arraysizeof(pcb->rcvq) - 1] = p;
+        memmove(fwd->rcvq, fwd->rcvq + 1,
+                (arraysizeof(fwd->rcvq) - 1) * sizeof(fwd->rcvq[0]));
+        fwd->rcvq[arraysizeof(fwd->rcvq) - 1] = p;
     } else {
-        pcb->rcvq[pcb->nrcvq++] = p;
+        fwd->rcvq[fwd->nrcvq++] = p;
     }
 
-    udp_proxy_output(proxy, pcb);
+    udp_proxy_output(fwd);
 }
 
 /* called by lwip when a udp connection is create
@@ -149,22 +155,29 @@ void core_udp_new(struct udp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
+
     struct udp_forward *fwd;
     char *addr = ipaddr_ntoa(&pcb->local_ip);
     uint16_t port = pcb->local_port;
 
-    udp_recv(pcb, udp_lwip_received, NULL);
+    if ((fwd = calloc(1, sizeof(*fwd))) == NULL) {
+        fprintf(stderr, "Out of Memory.\n");
+        abort();
+    }
+    fwd->pcb = pcb;
+
+    udp_recv(pcb, udp_lwip_received, fwd);
 
     /* redir for DNS */
     if (port == 53 && strcmp(addr, NSPROXY_GATEWAY_IP) == 0) {
         if (conf->dnstype == DNS_REDIR_OFF) {
             /* let udp_lwip_received() drop packet */
-            pcb->proxy = NULL;
+            fwd->proxy = NULL;
             return;
         }
         if (conf->dnstype == DNS_REDIR_TCP) {
-            pcb->proxy = tcpdns_create(loop, &udp_proxy_io_event, pcb);
-            pcb->proxy->connect(pcb->proxy, conf->dnssrv, port);
+            fwd->proxy = tcpdns_create(loop, &udp_proxy_io_event, fwd);
+            fwd->proxy->connect(fwd->proxy, conf->dnssrv, port);
             return;
         }
         if (conf->dnstype == DNS_REDIR_UDP) {
@@ -174,20 +187,23 @@ void core_udp_new(struct udp_pcb *pcb)
     }
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        pcb->proxy = socks_udp_create(loop, &udp_proxy_io_event, pcb);
-        pcb->proxy->connect(pcb->proxy, addr, port);
+        fwd->proxy = socks_udp_create(loop, &udp_proxy_io_event, fwd);
+        fwd->proxy->connect(fwd->proxy, addr, port);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
-        pcb->proxy = NULL;
+        fwd->proxy = NULL;
     } else {
-        pcb->proxy = direct_udp_create(loop, &udp_proxy_io_event, pcb);
-        pcb->proxy->connect(pcb->proxy, addr, port);
+        fwd->proxy = direct_udp_create(loop, &udp_proxy_io_event, fwd);
+        fwd->proxy->connect(fwd->proxy, addr, port);
     }
 }
 
 /* try to recv data from proxy server and send to application */
-static void tcp_proxy_input(struct sk_ops *proxy, struct tcp_pcb *pcb)
+static void tcp_proxy_input(struct tcp_forward *fwd)
 {
+    struct tcp_pcb *pcb = fwd->pcb;
+    struct sk_ops *proxy = fwd->proxy;
+
     for (; tcp_sndbuf(pcb) && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN - 4;) {
         ssize_t nread;
         struct pbuf *p;
@@ -215,17 +231,17 @@ static void tcp_proxy_input(struct sk_ops *proxy, struct tcp_pcb *pcb)
             return;
         }
 
-        /* send to application and enqueue to pcb->sndq */
+        /* send to application and enqueue to fwd->sndq */
         if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
             fprintf(stderr, "Out of Memory.\n");
             abort();
         }
-        if (pcb->sndq == NULL)
-            pcb->sndq = p;
+        if (fwd->sndq == NULL)
+            fwd->sndq = p;
         else
-            pbuf_cat(pcb->sndq, p);
+            pbuf_cat(fwd->sndq, p);
 
-        /* p is moved into pcb->sndq, don't free */
+        /* p is moved into fwd->sndq, don't free */
 
         tcp_output(pcb); /* don't delay */
     }
@@ -233,20 +249,22 @@ static void tcp_proxy_input(struct sk_ops *proxy, struct tcp_pcb *pcb)
     proxy->evctl(proxy, EPOLLIN, 0);
 }
 
-/* try to send data to proxy server, data already in pcb->rcvq */
-static void tcp_proxy_output(struct sk_ops *proxy, struct tcp_pcb *pcb)
+/* try to send data to proxy server, data already in fwd->rcvq */
+static void tcp_proxy_output(struct tcp_forward *fwd)
 {
+    struct tcp_pcb *pcb = fwd->pcb;
+    struct sk_ops *proxy = fwd->proxy;
     ssize_t nsent;
 
-    while (pcb->rcvq) {
-        nsent = proxy->send(proxy, pcb->rcvq->payload, pcb->rcvq->len);
+    while (fwd->rcvq) {
+        nsent = proxy->send(proxy, fwd->rcvq->payload, fwd->rcvq->len);
 
         if (nsent < 0) {
             proxy->evctl(proxy, EPOLLOUT, 1);
             return;
         }
 
-        pcb->rcvq = pbuf_free_header(pcb->rcvq, nsent);
+        fwd->rcvq = pbuf_free_header(fwd->rcvq, nsent);
         tcp_recved(pcb, nsent);
     }
 
@@ -256,15 +274,16 @@ static void tcp_proxy_output(struct sk_ops *proxy, struct tcp_pcb *pcb)
 /* handle event occured in connection connected to proxy server */
 static void tcp_proxy_io_event(void *userp, unsigned int event)
 {
-    struct tcp_pcb *pcb = userp;
+    struct tcp_forward *fwd = userp;
+    struct tcp_pcb *pcb = fwd->pcb;
 
     /* Fatal errors (e.g. ENOMEM) already handled in the impl of sk_ops.
        Other failures (e.g. ECONNABORTED) handled here, others part of this
        program could simplely retry when IO error occured.
     */
     if (event & EPOLLERR) {
-        pcb->proxy->put(pcb->proxy);
-        pcb->proxy = NULL;
+        fwd->proxy->put(fwd->proxy);
+        fwd->proxy = NULL;
         tcp_abort(pcb);
         return;
     }
@@ -275,16 +294,16 @@ static void tcp_proxy_io_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLIN) {
-        tcp_proxy_input(pcb->proxy, pcb);
+        tcp_proxy_input(fwd);
     }
 
     if (event & EPOLLOUT) {
-        tcp_proxy_output(pcb->proxy, pcb);
+        tcp_proxy_output(fwd);
     }
 
     if (event & EPOLLHUP) {
-        pcb->proxy->put(pcb->proxy);
-        pcb->proxy = NULL;
+        fwd->proxy->put(fwd->proxy);
+        fwd->proxy = NULL;
         tcp_close(pcb);
     }
 }
@@ -294,16 +313,18 @@ static void tcp_proxy_io_event(void *userp, unsigned int event)
 */
 static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
+    struct tcp_forward *fwd = arg;
+
     /* remove ackeded data from send queue */
-    pcb->sndq = pbuf_free_header(pcb->sndq, len);
+    fwd->sndq = pbuf_free_header(fwd->sndq, len);
 
     /* ask proxy server for more data, if we have space in queue */
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
             /* proxy may closed before final ACK recived from application
                if so, we can't try reciving more data from proxy */
-            if (pcb->proxy) 
-                tcp_proxy_input(pcb->proxy, pcb);
+            if (fwd->proxy)
+                tcp_proxy_input(fwd);
 
     return ERR_OK;
 }
@@ -314,7 +335,8 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
                                err_t err)
 {
-    struct sk_ops *proxy = pcb->proxy;
+    struct tcp_forward *fwd = arg;
+    struct sk_ops *proxy = fwd->proxy;
 
     if (!proxy) {
         /* lost connection to proxy server, abort connection */
@@ -333,12 +355,12 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
     tcp_ack(pcb); /* ack immediately */
 
     /* enqueue, rcvq should not full */
-    if (pcb->rcvq)
-        pbuf_cat(pcb->rcvq, p);
+    if (fwd->rcvq)
+        pbuf_cat(fwd->rcvq, p);
     else
-        pcb->rcvq = p;
+        fwd->rcvq = p;
 
-    tcp_proxy_output(proxy, pcb);
+    tcp_proxy_output(fwd);
 
     return ERR_OK;
 }
@@ -350,20 +372,27 @@ void core_tcp_new(struct tcp_pcb *pcb)
 {
     struct loopctx *loop = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
+    struct tcp_forward *fwd;
+
+    if ((fwd = calloc(1, sizeof(*fwd))) == NULL) {
+        fprintf(stderr, "Out of Memory.\n");
+        abort();
+    }
+    fwd->pcb = pcb;
 
     tcp_nagle_disable(pcb);
-
+    tcp_arg(pcb, fwd);
     tcp_sent(pcb, &tcp_lwip_sent);
     tcp_recv(pcb, &tcp_lwip_received);
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        pcb->proxy = socks_tcp_create(loop, &tcp_proxy_io_event, pcb);
+        fwd->proxy = socks_tcp_create(loop, &tcp_proxy_io_event, pcb);
     } else if (conf->proxytype == PROXY_HTTP) {
-        pcb->proxy = http_tcp_create(loop, &tcp_proxy_io_event, pcb);
+        fwd->proxy = http_tcp_create(loop, &tcp_proxy_io_event, pcb);
     } else {
-        pcb->proxy = direct_tcp_create(loop, &tcp_proxy_io_event, pcb);
+        fwd->proxy = direct_tcp_create(loop, &tcp_proxy_io_event, fwd);
     }
 
-    pcb->proxy->connect(pcb->proxy, ipaddr_ntoa(&pcb->local_ip),
+    fwd->proxy->connect(fwd->proxy, ipaddr_ntoa(&pcb->local_ip),
                         pcb->local_port);
 }

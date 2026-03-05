@@ -116,13 +116,6 @@ struct udp_pcb {
   void *recv_arg;
 
 #if NSPROXY_MODIFIED
-    /* connection to proxy server */
-    struct sk_ops *proxy;
-
-    /* some udp datagram recieved from application is buffered */
-    struct pbuf *rcvq[8];
-    u16_t nrcvq;
-
     /* pcb time-to-live in seconds, decrease every seconds, if reached to zero,
        release this pcb, if a activity on this pcb, reset value to timeout
     */

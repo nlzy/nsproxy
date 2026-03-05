@@ -78,6 +78,10 @@
 #include "lwip/sys.h"
 #endif
 
+#if NSPROXY_MODIFIED
+#include "core.h"
+#endif
+
 #include <string.h>
 
 #ifdef LWIP_HOOK_FILENAME
