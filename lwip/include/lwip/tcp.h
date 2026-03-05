@@ -51,10 +51,6 @@
 #include "lwip/ip6.h"
 #include "lwip/ip6_addr.h"
 
-#if NSPROXY_MODIFIED
-#include "skops.h"
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif

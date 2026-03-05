@@ -217,20 +217,6 @@ tcp_free(struct tcp_pcb *pcb)
 #if LWIP_TCP_PCB_NUM_EXT_ARGS
   tcp_ext_arg_invoke_callbacks_destroyed(pcb->ext_args);
 #endif
-#if NSPROXY_MODIFIED
-  {
-    struct tcp_forward *forward = (struct tcp_forward *)pcb->callback_arg;
-    if (forward) {
-      if (forward->proxy)
-        forward->proxy->put(forward->proxy);
-      if (forward->sndq)
-        pbuf_free(forward->sndq);
-      if (forward->rcvq)
-        pbuf_free(forward->rcvq);
-      free(forward);
-    }
-  }
-#endif
   memp_free(MEMP_TCP_PCB, pcb);
 }
 

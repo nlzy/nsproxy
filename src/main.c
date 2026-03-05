@@ -19,6 +19,7 @@
 
 #include "common.h"
 #include "loop.h"
+#include "core.h"
 #include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
@@ -368,8 +369,10 @@ static int parent(int sk)
 {
     int tunfd;
     int childfd;
+    int rc;
     sigset_t mask;
     struct loopctx *loop;
+    struct corectx *core;
     char dummy = '\0';
 
     /* become a subreaper, receive SIGCHLD for grandchilds */
@@ -405,13 +408,18 @@ static int parent(int sk)
         perror("write()");
         abort();
     }
-
     close(sk);
 
-    loglv(3, "parent: starting event loop");
-
     loop_init(&loop, tunfd, childfd);
-    return loop_run(loop);
+    core_init(&core, loop, tunfd);
+
+    loglv(3, "parent: starting event loop");
+    rc = loop_run(loop);
+
+    core_deinit(core);
+    loop_deinit(loop);
+
+    return rc;
 }
 
 /* tasks in child process are:
