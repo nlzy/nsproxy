@@ -18,7 +18,7 @@ struct sk_ops {
     /* shutdown function
        argument how is same as shutdown(2), mostly used for TCP half-close
      */
-    int (*shutdown)(struct sk_ops *conn, int how);
+    int (*shutdown)(struct sk_ops *conn, int how, int rst);
 
     /* event control funcion
        argument events is same as epoll_ctl(2)

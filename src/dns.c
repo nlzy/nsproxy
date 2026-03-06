@@ -145,7 +145,7 @@ static int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 }
 
 /* empty impl for struct sk_ops :: shutdown */
-static int tcpdns_shutdown(struct sk_ops *conn, int how)
+static int tcpdns_shutdown(struct sk_ops *conn, int how, int rst)
 {
     return 0;
 }

@@ -96,20 +96,36 @@ static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
         loglv(1, "Connected %s:%u/tcp", addr, (unsigned)port);
     }
 
-    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT | EPOLLIN,
+    self->events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
                    &self->epcb);
 
     return 0;
 }
 
 /* impl for struct sk_ops :: shutdown */
-static int direct_shutdown(struct sk_ops *conn, int how)
+static int direct_shutdown(struct sk_ops *conn, int how, int rst)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
+    struct linger lng = { 1, 0 };
     int ret;
 
     loglv(3, "direct_shutdown: shutting down %s:%u/%s",
              self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+
+    if (rst) {
+        if (setsockopt(self->sfd,
+                       SOL_SOCKET, SO_LINGER,&lng, sizeof(lng)) == -1) {
+            perror("setsockopt()");
+            abort();
+        }
+        if (close(self->sfd) == -1) {
+            perror("close()");
+            abort();
+        }
+        self->sfd = -1;
+        return 0;
+    }
 
     if ((ret = shutdown(self->sfd, how)) == -1) {
         if (is_ignored_skerr(errno)) {
@@ -127,17 +143,16 @@ static int direct_shutdown(struct sk_ops *conn, int how)
 static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-    unsigned int new_events = self->events;
+    unsigned int new_events = enable ? (self->events | event)
+                                     : (self->events & ~event);
 
-    if (enable) {
-        new_events |= event;
-    } else {
-        new_events &= ~event;
+    if (new_events != self->events) {
+        int op = (self->events == 0) ? EPOLL_CTL_ADD :
+                 (new_events == 0)   ? EPOLL_CTL_DEL :
+                                       EPOLL_CTL_MOD;
+        loop_epoll_ctl(self->loop, op, self->sfd, new_events, &self->epcb);
+        self->events = new_events;
     }
-
-    if (new_events != self->events)
-        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, new_events,
-                       &self->epcb);
 }
 
 /* impl for struct sk_ops :: send */
@@ -189,25 +204,25 @@ static ssize_t direct_recv(struct sk_ops *conn, char *data, size_t size)
 /* internal destroy function, called when refcnt reaches zero */
 static void direct_destroy_internal(struct conn_direct *self)
 {
-    loglv(3, "direct_destroy_internal: destroying %s:%u/%s",
-             self->addr, (unsigned)self->port, self->isudp ? "udp" : "tcp");
+    if (self->sfd != -1) {
+        if (self->events)
+            loop_epoll_ctl(self->loop, EPOLL_CTL_DEL, self->sfd, 0, NULL);
 
-    loop_epoll_ctl(self->loop, EPOLL_CTL_DEL, self->sfd, 0, NULL);
+        if (shutdown(self->sfd, SHUT_RDWR) == -1) {
+            if (!is_ignored_skerr(errno)) {
+                perror("shutdown()");
+                abort();
+            }
+        }
 
-    if (shutdown(self->sfd, SHUT_RDWR) == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("shutdown()");
+        if (close(self->sfd) == -1) {
+            perror("close()");
             abort();
         }
     }
 
     loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
              self->addr, (unsigned)self->port, self->nsent, self->nread);
-
-    if (close(self->sfd) == -1) {
-        perror("close()");
-        abort();
-    }
 
     free(self->addr);
 
