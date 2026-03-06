@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-TCP Half-Close Test Tool
-========================
+TCP Half-Close Test Tool (Server-initiated)
+===========================================
 
-This script implements a TCP half-close test that verifies proper handling
-of TCP half-close scenarios where one side shuts down its write end while
-keeping the read end open.
+This script implements a TCP half-close test where the server initiates
+a half-close (shutdown write end) while keeping the read end open.
 
 Usage:
-    python3 tcp_halfclose.py -s <bind_addr> -p <port>    # Run as server
-    python3 tcp_halfclose.py -c <server_addr> -p <port>  # Run as client
+    python3 tcp_halfclose_sv.py -s <bind_addr> -p <port>    # Run as server
+    python3 tcp_halfclose_sv.py -c <server_addr> -p <port>  # Run as client
 
 Arguments:
     -s, --server <bind_addr>    Run in server mode, binding to specified address
@@ -26,26 +25,21 @@ Test Flow:
                               |                                    |
                               |<------- 3. send 's' ---------------|
                               |         (DATA_SIZE bytes)          |
-                4. recv 's' --|                                    |
- print CLIENT-FIRST-RECV-OK   |                                    |
+                              |         shutdown(SHUT_WR)          |
+      4. recv 's' until EOF --|                                    |
+ print CLIENT-FINAL-RECV-OK   |                                    |
                               |                                    |
                               |-------- 5. send 'C' -------------->|
                               |         (DATA_SIZE bytes)          |
-                              |         shutdown(SHUT_WR)          |
+                              |         close()                    |
                               |                                    |-- 6. recv 'C' until EOF
                               |                                    |      print SERVER-FINAL-RECV-OK
-                              |<------- 7. send 'S' ---------------|
-                              |         (DATA_SIZE bytes)          |
-                              |         close()                    |
-      8. recv 'S' until EOF --|                                    |
- print CLIENT-FINAL-RECV-OK   |                                    |
                               |                                    |
 
 Output Messages:
     SERVER-FIRST-RECV-OK    - Server successfully received first data chunk
-    CLIENT-FIRST-RECV-OK    - Client successfully received first data chunk
-    SERVER-FINAL-RECV-OK    - Server received second chunk and detected half-close
-    CLIENT-FINAL-RECV-OK    - Client received final chunk and detected close
+    CLIENT-FINAL-RECV-OK    - Client received data and detected server half-close (FIN)
+    SERVER-FINAL-RECV-OK    - Server received second chunk and detected client close (FIN)
 
 Exit Codes:
     0 - Success
@@ -100,10 +94,11 @@ def run_server(bind_addr, port):
 
     print("SERVER-FIRST-RECV-OK", flush=True)
 
-    # diagram.3: Send 's' to client
+    # diagram.3: Send 's' to client and shutdown write end (half-close)
     conn.sendall(b"s" * DATA_SIZE)
+    conn.shutdown(socket.SHUT_WR)
 
-    # diagram.6: Receive 'C' from client and detect half-close
+    # diagram.6: Receive 'C' from client and detect client close
     data2 = recv_exact(conn, DATA_SIZE)
     if data2 is None:
         print(
@@ -139,9 +134,6 @@ def run_server(bind_addr, port):
 
     print("SERVER-FINAL-RECV-OK", flush=True)
 
-    # diagram.7: Send 'S' to client, then close
-    conn.sendall(b"S" * DATA_SIZE)
-
     # Close connection
     conn.close()
     server_sock.close()
@@ -155,48 +147,21 @@ def run_client(server_addr, port):
     # diagram.1: Send 'c' to server
     sock.sendall(b"c" * DATA_SIZE)
 
-    # diagram.4: Receive 's' from server
+    # diagram.4: Receive 's' from server and detect server half-close
     data1 = recv_exact(sock, DATA_SIZE)
     if data1 is None:
-        print(
-            f"ERROR: Failed to receive first data, connection closed", file=sys.stderr
-        )
+        print(f"ERROR: Failed to receive data, connection closed", file=sys.stderr)
         sys.exit(1)
     if len(data1) != DATA_SIZE:
         print(
-            f"ERROR: Failed to receive first data, got {len(data1)} bytes, expected {DATA_SIZE}",
+            f"ERROR: Failed to receive data, got {len(data1)} bytes, expected {DATA_SIZE}",
             file=sys.stderr,
         )
         sys.exit(1)
 
     # Verify data content
     if data1 != b"s" * DATA_SIZE:
-        print("ERROR: First data mismatch", file=sys.stderr)
-        sys.exit(1)
-
-    print("CLIENT-FIRST-RECV-OK", flush=True)
-
-    # diagram.5: Send 'C' to server and shutdown write end
-    sock.sendall(b"C" * DATA_SIZE)
-    sock.shutdown(socket.SHUT_WR)
-
-    # diagram.8: Receive 'S' from server and detect server closed
-    data2 = recv_exact(sock, DATA_SIZE)
-    if data2 is None:
-        print(
-            f"ERROR: Failed to receive second data, connection closed", file=sys.stderr
-        )
-        sys.exit(1)
-    if len(data2) != DATA_SIZE:
-        print(
-            f"ERROR: Failed to receive second data, got {len(data2)} bytes, expected {DATA_SIZE}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # Verify data content
-    if data2 != b"S" * DATA_SIZE:
-        print("ERROR: Second data mismatch", file=sys.stderr)
+        print("ERROR: Data mismatch", file=sys.stderr)
         sys.exit(1)
 
     # Confirm server has stopped sending (must receive FIN, not RST)
@@ -216,13 +181,16 @@ def run_client(server_addr, port):
 
     print("CLIENT-FINAL-RECV-OK", flush=True)
 
+    # diagram.5: Send 'C' to server and close connection
+    sock.sendall(b"C" * DATA_SIZE)
+
     # Close connection
     sock.close()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="TCP half-close test tool",
+        description="TCP half-close test tool (server-initiated)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
