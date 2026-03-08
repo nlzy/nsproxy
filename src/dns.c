@@ -4,6 +4,8 @@
 #include <endian.h>
 #include <errno.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 #include "direct.h"
 #include "http.h"
@@ -26,12 +28,18 @@ struct conn_tcpdns {
     uint16_t port;
 
     /* user may initiate multiple queries on a single pseudo UDP connection, so
-       there is multiple workers, each worker open a single TCP connection for a
-       single query.
+       there is multiple workers, each worker open a single TCP connection for
+       a single query.
        because in DNS protocol, a single TCP connection can only handle one
        query
     */
     struct conn_tcpdns_worker *workers;
+
+    /* receive worker done event */
+    int evfd;
+    struct epcb_ops evfdepcb;
+
+    unsigned int events;
 };
 
 struct conn_tcpdns_worker {
@@ -100,10 +108,11 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
             memcpy(&rsz, worker->buffer, sizeof(rsz));
             rsz = be16toh(rsz);
             if (rsz + 2 == worker->nbuffer) {
+                const uint64_t val = 1;
                 proxy->put(proxy);
                 worker->proxy = NULL;
                 worker->done = 1;
-                worker->master->userev(worker->master->userp, EPOLLIN);
+                write(worker->master->evfd, &val, sizeof(val));
                 return;
             }
         }
@@ -127,6 +136,14 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     return;
 };
 
+/* eventfd callback, triggered when worker has data */
+static void tcpdns_master_epcb_events(struct epcb_ops *epcb, unsigned events)
+{
+    struct conn_tcpdns *master =
+        container_of(epcb, struct conn_tcpdns, evfdepcb);
+    master->userev(master->userp, events);
+}
+
 /* impl for struct sk_ops :: connect
    just copy the address of nameserver, actual connecting is delayed until any
    queries started.
@@ -141,6 +158,18 @@ static int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
     master->addr = strdup(addr);
     master->port = port;
 
+    if (master->evfd == -1) {
+        master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
+        if (master->evfd  == -1) {
+            perror("eventfd()");
+            abort();
+        }
+    }
+
+    master->events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(master->loop, EPOLL_CTL_ADD, master->evfd, master->events,
+                   &master->evfdepcb);
+
     return 0;
 }
 
@@ -150,10 +179,21 @@ static int tcpdns_shutdown(struct sk_ops *conn, int how, int rst)
     return 0;
 }
 
-/* empty impl for struct sk_ops :: evctl */
+/* impl for struct sk_ops :: evctl */
 static void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
-    return;
+    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    unsigned int new_events = enable ? (master->events | event)
+                                     : (master->events & ~event);
+
+    if (new_events != master->events) {
+        int op = (master->events == 0) ? EPOLL_CTL_ADD :
+                 (new_events == 0)     ? EPOLL_CTL_DEL :
+                                         EPOLL_CTL_MOD;
+        loop_epoll_ctl(master->loop, op, master->evfd, new_events,
+                       &master->evfdepcb);
+        master->events = new_events;
+    }
 }
 
 /* impl for struct sk_ops :: send
@@ -213,7 +253,14 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
     struct conn_tcpdns_worker *worker;
-    ssize_t n;
+    ssize_t szrepl;
+    ssize_t nread;
+    uint64_t val;
+
+    if ((nread = read(master->evfd, &val, sizeof(val))) == -1)
+        return -errno;
+
+    assert(nread == sizeof(val) && val == 1);
 
     /* find first worker which marked done */
     for (worker = master->workers; worker; worker = worker->next) {
@@ -224,15 +271,16 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
         return -EAGAIN; /* no worker marked done */
 
     /* copy answer */
-    n = worker->nbuffer - 2;
-    memcpy(data, worker->buffer + 2, n);
+    szrepl = worker->nbuffer - 2;
+    assert(szrepl >= 0);
+    memcpy(data, worker->buffer + 2, szrepl);
 
-    loglv(2, "+++ tcpdns %zd bytes answer", n);
+    loglv(2, "+++ tcpdns %zd bytes answer", szrepl);
 
     /* free */
     tcpdns_worker_destroy(worker);
 
-    return n;
+    return szrepl;
 }
 
 /* internal destroy function, called when refcnt reaches zero */
@@ -242,6 +290,12 @@ static void tcpdns_destroy_internal(struct conn_tcpdns *master)
 
     while (master->workers)
         tcpdns_worker_destroy(master->workers);
+
+    if (master->evfd != -1)
+        if (close(master->evfd) == -1) {
+            perror("close()");
+            abort();
+        }
 
     free(master->addr);
     free(master);
@@ -286,12 +340,16 @@ struct sk_ops *tcpdns_create(struct loopctx *loop,
     master->ops.recv = &tcpdns_recv;
     master->ops.get = &tcpdns_get;
     master->ops.put = &tcpdns_put;
+    master->evfdepcb.on_epoll_events = &tcpdns_master_epcb_events;
 
     master->refcnt = 1;
     master->userev = userev;
     master->userp = userp;
 
     master->loop = loop;
+
+    master->events = 0;
+    master->evfd = -1;
 
     return &master->ops;
 }
