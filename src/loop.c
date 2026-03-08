@@ -131,6 +131,8 @@ void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
     if (epoll_ctl(loop->epfd, op, fd, &ev) == -1) {
         if (errno == EEXIST) {
             loglv(3, "loop_epoll_ctl: fd %d is registered already", fd);
+        } else if (errno == ENOENT) {
+            loglv(3, "loop_epoll_ctl: fd %d is not registered", fd);
         } else {
             fprintf(stderr, "epoll_ctl(%d) failed: %s\n", op, strerror(errno));
             abort();

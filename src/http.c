@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "loop.h"
+#include "skcomm.h"
 
 enum {
     PHASE_SEND_REQUEST = 1,
@@ -93,32 +94,17 @@ static char *build_auth_header(const char *user, const char *pass)
 
 struct conn_http {
     struct sk_ops ops;
-    struct loopctx *loop;
-
-    struct epcb_ops epcb;
-
-    int refcnt;
-
+    struct sk_comm comm;
     void (*userev)(void *userp, unsigned int event);
     void *userp;
-
-    char *addr; /* for proixed connection, not proxy server */
+    char *addr; /* for proxied connection, not proxy server */
     uint16_t port;
-
-    int sfd; /* socket fd to proxy server */
-    unsigned int events;
-
     int phase;
-
     /* for handshake only */
-    /* TODO: free these buffer after handshake finished */
     char buffer[512];
     ssize_t nbuffer;
-
     char *auth_header; /* Proxy-Authorization header (malloc'd) */
-
-    size_t nsent;
-    size_t nread;
+    int refcnt;
 };
 
 
@@ -136,7 +122,7 @@ static void http_handshake_input(struct conn_http *self)
        we can carefuly not to touch them
        Treat self->buffer as string, nerver forget set a '\0' after recv()
     */
-    nread = recv(self->sfd, self->buffer + self->nbuffer,
+    nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                  sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
     if (nread == -1) {
         if (!is_ignored_skerr(errno)) {
@@ -161,7 +147,7 @@ static void http_handshake_input(struct conn_http *self)
         : nread;
 
     /* discard http response part in socket buffer */
-    nread = recv(self->sfd, self->buffer + self->nbuffer, ndiscard, 0);
+    nread = recv(self->comm.sfd, self->buffer + self->nbuffer, ndiscard, 0);
     if (nread != ndiscard) {
         fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, ndiscard);
         abort();
@@ -202,9 +188,9 @@ static void http_handshake_input(struct conn_http *self)
     loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
-    self->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
-                   &self->epcb);
+    self->comm.events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd,
+                   self->comm.events, &self->comm.epcb);
 }
 
 /* epoll event callback
@@ -227,7 +213,7 @@ static void http_handshake_output(struct conn_http *self)
         }
     }
 
-    if ((nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
+    if ((nsent = send(self->comm.sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
         -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
@@ -245,13 +231,14 @@ static void http_handshake_output(struct conn_http *self)
 
     /* good, http request has been send */
     self->phase = PHASE_RECV_REPLY;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLIN,
+                   &self->comm.epcb);
 }
 
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
-    struct conn_http *self =
-        container_of(epcb, struct conn_http, epcb);
+    struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
+    struct conn_http *self = container_of(comm, struct conn_http, comm);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -283,9 +270,7 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     struct nspconf *conf = current_nspconf();
-    struct addrinfo hints = { .ai_family = AF_UNSPEC };
-    struct addrinfo *result;
-    int const enable = 1;
+    uint16_t proxy_port;
 
     loglv(3, "http_connect: connecting %s:%u/tcp", addr, (unsigned)port);
 
@@ -294,30 +279,9 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     /* connect to proxy server,
        save arguments addr and port, there are required in handshake */
-    if (getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result) != 0)
+    proxy_port = (uint16_t)atoi(conf->proxyport);
+    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0)
         return -1;
-
-    if ((self->sfd = socket(result->ai_family,
-                            SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) ==
-        -1) {
-        perror("socket()");
-        abort();
-    }
-
-    if (setsockopt(self->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
-                   sizeof(enable)) == -1) {
-        perror("setsockopt()");
-        abort();
-    }
-
-    if (connect(self->sfd, result->ai_addr, result->ai_addrlen) == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("connect()");
-            abort();
-        }
-    }
-
-    freeaddrinfo(result);
 
     /* build auth header if credentials provided */
     if (conf->proxyuser[0] != '\0') {
@@ -326,8 +290,8 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     /* good, start handshake */
     self->phase = PHASE_SEND_REQUEST;
-    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT,
-                   &self->epcb);
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
+                   &self->comm.epcb);
 
     self->addr = strdup(addr);
     self->port = port;
@@ -339,146 +303,44 @@ static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 static int http_shutdown(struct sk_ops *conn, int how, int rst)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    struct linger lng = { 1, 0 };
-    int ret;
-
-    loglv(3, "http_shutdown: shutting down %s:%u/tcp",
-             self->addr, (unsigned)self->port);
-
-    if (self->phase != PHASE_FORWARDING) {
-        return -ENOTCONN;
-    }
-
-    if (rst) {
-        if (setsockopt(self->sfd,
-                       SOL_SOCKET, SO_LINGER,&lng, sizeof(lng)) == -1) {
-            perror("setsockopt()");
-            abort();
-        }
-        if (close(self->sfd) == -1) {
-            perror("close()");
-            abort();
-        }
-        self->sfd = -1;
-        return 0;
-    }
-
-    if ((ret = shutdown(self->sfd, how)) == -1) {
-        if (is_ignored_skerr(errno)) {
-            return -errno;
-        } else {
-            perror("shutdown()");
-            abort();
-        }
-    }
-
-    return ret;
+    return skcomm_common_shutdown(&self->comm, how, rst);
 }
 
 /* impl for struct sk_ops :: evctl */
 static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    unsigned int new_events = enable ? (self->events | event)
-                                     : (self->events & ~event);
 
     if (self->phase != PHASE_FORWARDING)
         return;
 
-    if (new_events != self->events) {
-        int op = (self->events == 0) ? EPOLL_CTL_ADD :
-                 (new_events == 0)   ? EPOLL_CTL_DEL :
-                                       EPOLL_CTL_MOD;
-        loop_epoll_ctl(self->loop, op, self->sfd, new_events, &self->epcb);
-        self->events = new_events;
-    }
+    skcomm_common_evctl(&self->comm, event, enable);
 }
 
 /* impl for struct sk_ops :: send */
 static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    ssize_t nsent;
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
-    nsent = send(self->sfd, data, size, MSG_NOSIGNAL);
-    if (nsent == -1) {
-        if (is_ignored_skerr(errno)) {
-            nsent = -errno;
-        } else {
-            perror("send()");
-            abort();
-        }
-    }
-
-    self->nsent += nsent;
-    loglv(2, "--- http %zd bytes. %s:%u/tcp", nsent, self->addr,
-          (unsigned)self->port);
-
-    return nsent;
+    return skcomm_common_send(&self->comm, data, size);
 }
 
 /* impl for struct sk_ops :: recv */
 static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
-    ssize_t nread;
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
         return -EAGAIN;
     }
 
-    nread = recv(self->sfd, data, size, 0);
-    if (nread == -1) {
-        if (is_ignored_skerr(errno)) {
-            return -errno;
-        } else {
-            perror("send()");
-            abort();
-        }
-    }
-
-    self->nread += nread;
-    loglv(2, "+++ http %zd bytes. %s:%u/tcp", nread, self->addr,
-          (unsigned)self->port);
-
-    return nread;
-}
-
-/* internal destroy function, called when refcnt reaches zero */
-static void http_destroy_internal(struct conn_http *self)
-{
-    if (self->sfd != -1) {
-        if (self->events)
-            loop_epoll_ctl(self->loop, EPOLL_CTL_DEL, self->sfd, 0, NULL);
-
-        if (shutdown(self->sfd, SHUT_RDWR) == -1) {
-            if (!is_ignored_skerr(errno)) {
-                perror("shutdown()");
-                abort();
-            }
-        }
-
-        if (close(self->sfd) == -1) {
-            perror("close()");
-            abort();
-        }
-    }
-
-    if (self->phase == PHASE_FORWARDING) {
-        loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
-                 self->addr, (unsigned)self->port, self->nsent, self->nread);
-    }
-
-    free(self->addr);
-    free(self->auth_header);
-
-    free(self);
+    return skcomm_common_recv(&self->comm, data, size);
 }
 
 /* impl for struct sk_ops :: get */
@@ -493,7 +355,10 @@ static void http_put(struct sk_ops *conn)
 {
     struct conn_http *self = container_of(conn, struct conn_http, ops);
     if (--self->refcnt == 0) {
-        http_destroy_internal(self);
+        skcomm_common_close(&self->comm);
+        free(self->addr);
+        free(self->auth_header);
+        free(self);
     }
 }
 
@@ -512,6 +377,10 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
         abort();
     }
 
+    self->refcnt = 1;
+    self->userev = userev;
+    self->userp = userp;
+
     self->ops.connect = &http_connect;
     self->ops.shutdown = &http_shutdown;
     self->ops.evctl = &http_evctl;
@@ -519,12 +388,11 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     self->ops.recv = &http_recv;
     self->ops.get = &http_get;
     self->ops.put = &http_put;
-    self->epcb.on_epoll_events = &http_epcb_events;
 
-    self->refcnt = 1;
-    self->loop = loop;
-    self->userev = userev;
-    self->userp = userp;
+    self->comm.epcb.on_epoll_events = &http_epcb_events;
+    self->comm.loop = loop;
+    self->comm.stype = SOCK_STREAM;
+    self->comm.sfd = -1;
 
     return &self->ops;
 }

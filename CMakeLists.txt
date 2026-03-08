@@ -26,6 +26,7 @@ add_executable(nsproxy
     lwip/udp.c
     src/main.c
     src/core.c
+    src/skcomm.c
     src/loop.c
     src/direct.c
     src/socks.c

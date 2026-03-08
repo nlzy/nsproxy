@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "loop.h"
+#include "skcomm.h"
 
 /* socks handshake phases */
 enum {
@@ -53,36 +54,21 @@ enum {
 
 struct conn_socks {
     struct sk_ops ops;
-    struct loopctx *loop;
-
-    struct epcb_ops epcb;
-
-    int refcnt;
-
+    struct sk_comm comm;
     void (*userev)(void *userp, unsigned int event);
     void *userp;
-
     char *addr; /* for proxied connection, not proxy server */
     uint16_t port;
-
     /* - TCP_FORWARD: connected to proxy, for both handshake and data foward
      * - UDP_FORWARD: connected to relay server, for UDP foward only
      * - UDP_ASSOCIATE: connected to proxy, for UDP associate handshake only
      */
     int type;
-
-    int sfd;
-    unsigned int events;
-
     int phase;
-
     /* for handshake only */
-    /* TODO: free these buffer after handshake finished */
     char buffer[512];
     size_t nbuffer;
-
-    size_t nsent;
-    size_t nread;
+    int refcnt;
 };
 
 struct socks5hdr {
@@ -313,7 +299,7 @@ static void socks_handshake_output(struct conn_socks *self)
         }
     }
 
-    nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
+    nsent = send(self->comm.sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (!is_ignored_skerr(errno)) {
             perror("send()");
@@ -335,7 +321,8 @@ static void socks_handshake_output(struct conn_socks *self)
         case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
     }
 
-    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLIN,
+                   &self->comm.epcb);
 }
 
 static void socks_handshake_input(struct conn_socks *self)
@@ -343,7 +330,7 @@ static void socks_handshake_input(struct conn_socks *self)
     ssize_t nread;
 
     if (self->phase == PHASE_RECV_METHOD) {
-        nread = recv(self->sfd, self->buffer + self->nbuffer,
+        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
         if (nread == -1) {
             if (!is_ignored_skerr(errno)) {
@@ -404,7 +391,7 @@ static void socks_handshake_input(struct conn_socks *self)
     }
 
     if (self->phase == PHASE_RECV_AUTH) {
-        nread = recv(self->sfd, self->buffer + self->nbuffer,
+        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
         if (nread == -1) {
             if (!is_ignored_skerr(errno)) {
@@ -453,7 +440,7 @@ static void socks_handshake_input(struct conn_socks *self)
 
         /* use MSG_PEEK here, if some application layer data has been returned,
            we can carefuly not to touch them */
-        nread = recv(self->sfd, self->buffer + self->nbuffer,
+        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
         if (nread == -1) {
             if (!is_ignored_skerr(errno)) {
@@ -488,7 +475,7 @@ static void socks_handshake_input(struct conn_socks *self)
         } while (0);
 
         /* discard socks handshake reply part in socket buffer */
-        nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0);
+        nread = recv(self->comm.sfd, self->buffer + self->nbuffer, s, 0);
         if (nread != s) {
             fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
             abort();
@@ -538,20 +525,20 @@ static void socks_handshake_input(struct conn_socks *self)
 
     /* when control flow reach here, it should finish a step of input phase */
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
-        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLOUT,
-                       &self->epcb);
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLOUT,
+                       &self->comm.epcb);
     } else {
         assert(self->phase == PHASE_FORWARDING);
-        self->events = EPOLLOUT | EPOLLIN;
-        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
-                       &self->epcb);
+        self->comm.events = EPOLLOUT | EPOLLIN;
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd,
+                       self->comm.events, &self->comm.epcb);
     }
 }
 
 static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
-    struct conn_socks *self =
-        container_of(epcb, struct conn_socks, epcb);
+    struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
+    struct conn_socks *self = container_of(comm, struct conn_socks, comm);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -585,10 +572,7 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
     struct nspconf *conf = current_nspconf();
-    struct addrinfo hints = { .ai_family = AF_UNSPEC };
-    struct addrinfo *result;
-    int sktype = self->type == UDP_FORWARD ? SOCK_DGRAM : SOCK_STREAM;
-    int const enable = 1;
+    uint16_t proxy_port;
 
     loglv(3, "socks_connect: connecting %s:%u/%s",
              addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
@@ -598,42 +582,21 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 
     /* connect to proxy server,
        save arguments addr and port, there are required in handshake */
-    if (getaddrinfo(conf->proxysrv, conf->proxyport, &hints, &result) != 0)
+    proxy_port = (uint16_t)atoi(conf->proxyport);
+    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0)
         return -1;
-
-    if ((self->sfd = socket(result->ai_family,
-                            sktype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
-        perror("socket()");
-        abort();
-    }
-
-    if (self->type != UDP_FORWARD) {
-        if (setsockopt(self->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
-                       sizeof(int)) == -1) {
-            perror("setsockopt()");
-            abort();
-        }
-    }
-
-    if (connect(self->sfd, result->ai_addr, result->ai_addrlen) == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("connect()");
-            abort();
-        }
-    }
-
-    freeaddrinfo(result);
 
     if (self->type == UDP_FORWARD) {
         /* it's no need to handshake in udp, start forward packet now */
         self->phase = PHASE_FORWARDING;
         loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
-        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT | EPOLLIN,
-                       &self->epcb);
+        self->comm.events = EPOLLOUT | EPOLLIN;
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
+                       self->comm.events, &self->comm.epcb);
     } else {
         self->phase = PHASE_SEND_METHOD;
-        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT,
-                       &self->epcb);
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
+                       &self->comm.epcb);
     }
 
     self->addr = strdup(addr);
@@ -646,61 +609,24 @@ static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
 static int socks_shutdown(struct sk_ops *conn, int how, int rst)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    struct linger lng = { 1, 0 };
-    int ret;
-
-    loglv(3, "socks_shutdown: shutting down %s:%u/%s", self->addr,
-             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
-
-    if (self->phase != PHASE_FORWARDING) {
-        return -ENOTCONN;
-    }
-
-    if (rst) {
-        if (setsockopt(self->sfd,
-                       SOL_SOCKET, SO_LINGER,&lng, sizeof(lng)) == -1) {
-            perror("setsockopt()");
-            abort();
-        }
-        if (close(self->sfd) == -1) {
-            perror("close()");
-            abort();
-        }
-        self->sfd = -1;
-        return 0;
-    }
-
-    return ret;
+    return skcomm_common_shutdown(&self->comm, how, rst);
 }
 
 /* impl for struct sk_ops :: evctl */
 static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    unsigned int new_events = enable ? (self->events | event)
-                                     : (self->events & ~event);
 
     if (self->phase != PHASE_FORWARDING)
         return;
 
-    if (new_events != self->events) {
-        int op = (self->events == 0) ? EPOLL_CTL_ADD :
-                 (new_events == 0)   ? EPOLL_CTL_DEL :
-                                       EPOLL_CTL_MOD;
-        loop_epoll_ctl(self->loop, op, self->sfd, new_events, &self->epcb);
-        self->events = new_events;
-    }
+    skcomm_common_evctl(&self->comm, event, enable);
 }
 
 /* impl for struct sk_ops :: send */
 static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    char buffer[512]; /* for socks header only  */
-    struct msghdr msg;
-    struct iovec iov[2];
-    size_t iovlen = 0;
-    ssize_t nsent;
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
@@ -708,6 +634,10 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
     }
 
     if (self->type == UDP_FORWARD) {
+        char buffer[512]; /* for socks header only  */
+        struct msghdr msg;
+        struct iovec iov[2];
+        size_t iovlen = 0;
         struct socks5hdr hdr = { 0 };
         struct socks5addr addr;
         size_t offset = 0;
@@ -725,31 +655,18 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
         iov[iovlen].iov_base = buffer;
         iov[iovlen].iov_len = offset;
         iovlen++;
+        iov[iovlen].iov_base = (void *)data;
+        iov[iovlen].iov_len = size;
+        iovlen++;
+
+        memset(&msg, 0, sizeof(msg));
+        msg.msg_iov = iov;
+        msg.msg_iovlen = iovlen;
+
+        return skcomm_common_sendmsg(&self->comm, &msg);
+    } else {
+        return skcomm_common_send(&self->comm, data, size);
     }
-
-    iov[iovlen].iov_base = (void *)data;
-    iov[iovlen].iov_len = size;
-    iovlen++;
-
-    memset(&msg, 0, sizeof(msg));
-    msg.msg_iov = iov;
-    msg.msg_iovlen = iovlen;
-
-    nsent = sendmsg(self->sfd, &msg, MSG_NOSIGNAL);
-    if (nsent == -1) {
-        if (is_ignored_skerr(errno)) {
-            nsent = -errno;
-        } else {
-            perror("send()");
-            abort();
-        }
-    }
-
-    self->nsent += nsent;
-    loglv(2, "--- socks %zd bytes. %s:%u/%s", nsent, self->addr,
-             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
-
-    return nsent;
 }
 
 /* impl for struct sk_ops :: recv */
@@ -763,19 +680,9 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
         return -EAGAIN;
     }
 
-    nread = recv(self->sfd, data, size, 0);
-    if (nread == -1) {
-        if (is_ignored_skerr(errno)) {
-            return -errno;
-        } else {
-            perror("send()");
-            abort();
-        }
-    }
-
-    self->nread += nread;
-    loglv(2, "+++ socks %zd bytes. %s:%u/%s", nread, self->addr,
-             (unsigned)self->port, self->type == TCP_FORWARD ? "tcp" : "udp");
+    nread = skcomm_common_recv(&self->comm, data, size);
+    if (nread < 0)
+        return nread;
 
     /* is udp, parse and remove header */
     if (self->type == UDP_FORWARD) {
@@ -803,41 +710,10 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
     return nread;
 }
 
-/* internal destroy function, called when refcnt reaches zero */
-static void socks_destroy_internal(struct conn_socks *self)
-{
-    if (self->sfd != -1) {
-        if (self->events)
-            loop_epoll_ctl(self->loop, EPOLL_CTL_DEL, self->sfd, 0, NULL);
-
-        if (shutdown(self->sfd, SHUT_RDWR) == -1) {
-            if (!is_ignored_skerr(errno)) {
-                perror("shutdown()");
-                abort();
-            }
-        }
-
-        if (close(self->sfd) == -1) {
-            perror("close()");
-            abort();
-        }
-    }
-
-    if (self->phase == PHASE_FORWARDING) {
-        loglv(1, "Closed %s:%u (sent %zu, recieved %zu bytes)",
-                 self->addr, (unsigned)self->port, self->nsent, self->nread);
-    }
-
-    free(self->addr);
-
-    free(self);
-}
-
 /* impl for struct sk_ops :: get */
 static void socks_get(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    loglv(3, "socks_get: refcnt %d -> %d", self->refcnt, self->refcnt + 1);
     self->refcnt++;
 }
 
@@ -845,23 +721,31 @@ static void socks_get(struct sk_ops *conn)
 static void socks_put(struct sk_ops *conn)
 {
     struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    loglv(3, "socks_put: refcnt %d -> %d", self->refcnt, self->refcnt - 1);
     if (--self->refcnt == 0) {
-        socks_destroy_internal(self);
+        skcomm_common_close(&self->comm);
+        free(self->addr);
+        free(self);
     }
 }
 
 /* used for internal only */
-static struct conn_socks *socks_create_internal(void)
+static struct conn_socks *
+socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
 {
     struct conn_socks *self;
+    int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM ;
 
-    loglv(3, "socks_create_internal: creating a new struct conn_socks");
+    loglv(3, "socks_create_impl: creating a new struct conn_socks");
 
     if ((self = calloc(1, sizeof(struct conn_socks))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
+
+    self->refcnt = 1;
+    self->userev = userev;
+    self->userp = userp;
+    self->type = type;
 
     self->ops.connect = &socks_connect;
     self->ops.shutdown = &socks_shutdown;
@@ -870,10 +754,11 @@ static struct conn_socks *socks_create_internal(void)
     self->ops.recv = &socks_recv;
     self->ops.get = &socks_get;
     self->ops.put = &socks_put;
-    self->epcb.on_epoll_events = &socks_epcb_events;
 
-    self->sfd = -1;
-    self->refcnt = 1;
+    self->comm.epcb.on_epoll_events = &socks_epcb_events;
+    self->comm.loop = loop;
+    self->comm.stype = socktype;
+    self->comm.sfd = -1;
 
     return self;
 }
@@ -884,12 +769,7 @@ struct sk_ops *socks_tcp_create(struct loopctx *loop,
                                 void (*userev)(void *userp, unsigned int event),
                                 void *userp)
 {
-    struct conn_socks *self = socks_create_internal();
-
-    self->type = TCP_FORWARD;
-    self->loop = loop;
-    self->userev = userev;
-    self->userp = userp;
+    struct conn_socks *self = socks_create_impl(loop, userev, userp, TCP_FORWARD);
     return &self->ops;
 }
 
@@ -899,11 +779,6 @@ struct sk_ops *socks_udp_create(struct loopctx *loop,
                                 void (*userev)(void *userp, unsigned int event),
                                 void *userp)
 {
-    struct conn_socks *self = socks_create_internal();
-
-    self->type = UDP_FORWARD;
-    self->loop = loop;
-    self->userev = userev;
-    self->userp = userp;
+    struct conn_socks *self = socks_create_impl(loop, userev, userp, UDP_FORWARD);
     return &self->ops;
 }
