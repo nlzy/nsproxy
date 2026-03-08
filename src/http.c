@@ -107,6 +107,15 @@ struct conn_http {
     int refcnt;
 };
 
+static void http_handshake_perror(struct conn_http *self, int err)
+{
+    if (err > 0)
+        loglv(0, "Proxy server reset unexpectedly during HTTP handshake "
+                 "phase [%s]: %s", phasestr[self->phase], strerror(err));
+    else
+        loglv(0, "Proxy server closed unexpectedly during HTTP handshake "
+                 "phase [%s]", phasestr[self->phase]);
+}
 
 /* epoll event callback
    used of receiving http response */
@@ -124,16 +133,11 @@ static void http_handshake_input(struct conn_http *self)
     */
     nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                  sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
-    if (nread == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("recv()");
-            abort();
+    if (nread <= 0) {
+        if (nread == 0 || errno != EAGAIN) {
+            http_handshake_perror(self, nread == -1 ? errno : 0);
+            self->userev(self->userp, ~0u);
         }
-        return;
-    }
-    if (nread == 0) {
-        loglv(0, "Proxy server closed unexpectedly during HTTP handshake.");
-        self->userev(self->userp, EPOLLERR);
         return;
     }
     (self->buffer + self->nbuffer)[nread] = '\0';
@@ -160,7 +164,7 @@ static void http_handshake_input(struct conn_http *self)
         if (self->nbuffer == sizeof(self->buffer) - 1) {
             loglv(0, "Proxy server returned a header that is too large "
                      "during the handshake.");
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
         }
         /* if not failed, wait for rest handshake message */
         return;
@@ -170,7 +174,7 @@ static void http_handshake_input(struct conn_http *self)
     if (sscanf(self->buffer, "HTTP/1.%c %d", &vermin, &code) != 2) {
         loglv(0, "Proxy server returned invalid HTTP response header during "
                  "handshake");
-        self->userev(self->userp, EPOLLERR);
+        self->userev(self->userp, ~0u);
         return;
     }
     if (code != 200) {
@@ -180,7 +184,7 @@ static void http_handshake_input(struct conn_http *self)
         } else {
             loglv(0, "Proxy server returned HTTP error %d", code);
         }
-        self->userev(self->userp, EPOLLERR);
+        self->userev(self->userp, ~0u);
         return;
     }
 
@@ -213,11 +217,11 @@ static void http_handshake_output(struct conn_http *self)
         }
     }
 
-    if ((nsent = send(self->comm.sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL)) ==
-        -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("send()");
-            abort();
+    nsent = send(self->comm.sfd, self->buffer,self->nbuffer, MSG_NOSIGNAL);
+    if (nsent == -1) {
+        if (errno != EAGAIN) {
+            http_handshake_perror(self, errno);
+            self->userev(self->userp, ~0u);
         }
         return;
     }
@@ -248,13 +252,6 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 
     loglv(3, "http_epcb_events: handshaking with %s:%u/tcp [%s]",
              self->addr, (unsigned)self->port, phasestr[self->phase]);
-
-    if ((events & (EPOLLERR | EPOLLHUP)) && !(events & EPOLLIN)) {
-        loglv(0, "Proxy connection closed unexpectedly during HTTP handshake "
-                 "phase [%s]", phasestr[self->phase]);
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
 
     if (self->phase == PHASE_SEND_REQUEST) {
         http_handshake_output(self);

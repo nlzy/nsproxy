@@ -573,7 +573,8 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             pbuf_free(p);
             return ERR_OK;
         } else if (nread < 0) {
-            loglv(3, "tcp_proxy_input: proxy error, force destroy fwd");
+            loglv(3, "tcp_proxy_input: proxy error, force destroy fwd "
+                     "reason: %s", strerror(-nread));
             tcp_forward_destroy(fwd, 1);
             pbuf_free(p);
             return ERR_ABRT;
@@ -636,7 +637,8 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
             proxy->evctl(proxy, EPOLLOUT, 1);
             return ERR_OK;
         } else if (nsent < 0) {
-            loglv(3, "tcp_proxy_output: proxy error, force destroy fwd");
+            loglv(3, "tcp_proxy_output: proxy error, force destroy fwd, "
+                     "reason: %s", strerror(-nsent));
             tcp_forward_destroy(fwd, 1);
             return ERR_ABRT;
         } else {
@@ -667,29 +669,30 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
 static void tcp_proxy_io_event(void *userp, unsigned int event)
 {
     struct tcp_forward *fwd = userp;
+    err_t err = ERR_OK;
 
-    /* Fatal errors (e.g. ENOMEM) already handled in the impl of sk_ops.
-       Other failures (e.g. ECONNABORTED) handled here, others part of this
-       program could simplely retry when IO error occured.
-    */
-    if (event & EPOLLERR) {
-        loglv(3, "tcp_proxy_io_event: proxy error, force destroy fwd");
+    /* handshake with proxy server failed */
+    if (event == ~0u) {
         tcp_forward_destroy(fwd, 1);
         return;
     }
 
-    if (!fwd->pcb->proxyestab) {
+    /* There's may some confuse that we don't care EPOLLERR here
+       see select(2)
+    */
+    if (event & EPOLLERR)
+        assert(event & (EPOLLIN | EPOLLOUT));
+
+    if (!err && !fwd->pcb->proxyestab) {
         fwd->pcb->proxyestab = 1;
-        tcp_output(fwd->pcb);
+        err = tcp_output(fwd->pcb);
     }
 
-    if (event & EPOLLIN) {
-        tcp_proxy_input(fwd);
-    }
+    if (!err && (event & EPOLLIN))
+        err = tcp_proxy_input(fwd);
 
-    if (event & EPOLLOUT) {
-        tcp_proxy_output(fwd);
-    }
+    if (!err && (event & EPOLLOUT))
+        err = tcp_proxy_output(fwd);
 }
 
 /* called by lwip when application acked data,

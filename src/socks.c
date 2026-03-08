@@ -235,6 +235,16 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
     return cur - buffer;
 }
 
+static void socks_handshake_perror(struct conn_socks *self, int err)
+{
+    if (err > 0)
+        loglv(0, "Proxy server reset unexpectedly during SOCKS5 handshake "
+                 "phase [%s]: %s", phasestr[self->phase], strerror(err));
+    else
+        loglv(0, "Proxy server closed unexpectedly during SOCKS5 handshake "
+                 "phase [%s]", phasestr[self->phase]);
+}
+
 static void socks_handshake_output(struct conn_socks *self)
 {
     struct nspconf *conf = current_nspconf();
@@ -301,9 +311,9 @@ static void socks_handshake_output(struct conn_socks *self)
 
     nsent = send(self->comm.sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
     if (nsent == -1) {
-        if (!is_ignored_skerr(errno)) {
-            perror("send()");
-            abort();
+        if (errno != EAGAIN) {
+            socks_handshake_perror(self, errno);
+            self->userev(self->userp, ~0u);
         }
         return;
     }
@@ -332,17 +342,11 @@ static void socks_handshake_input(struct conn_socks *self)
     if (self->phase == PHASE_RECV_METHOD) {
         nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
-        if (nread == -1) {
-            if (!is_ignored_skerr(errno)) {
-                perror("recv()");
-                abort();
+        if (nread <= 0) {
+            if (nread == 0 || errno != EAGAIN) {
+                socks_handshake_perror(self, nread == -1 ? errno : 0);
+                self->userev(self->userp, ~0u);
             }
-            return;
-        }
-        if (nread == 0) {
-            loglv(0, "Proxy server closed connection unexpectedly during "
-                     "method negotiation");
-            self->userev(self->userp, EPOLLERR);
             return;
         }
         self->nbuffer += nread;
@@ -355,7 +359,7 @@ static void socks_handshake_input(struct conn_socks *self)
         if (self->buffer[0] != 5) {
             loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
                      "expected 0x05", (unsigned char)self->buffer[0]);
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -363,14 +367,14 @@ static void socks_handshake_input(struct conn_socks *self)
         if ((unsigned char)self->buffer[1] == 0xFF) {
             loglv(0, "Proxy server requires authentication. "
                      "Please check your username and password.");
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         } /* - else: server selected a method */
 
         /* should be only one method */
         if (self->nbuffer != 2) {
             loglv(0, "Proxy server returned invalid method response");
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -385,7 +389,7 @@ static void socks_handshake_input(struct conn_socks *self)
             /* other */
             loglv(0, "Proxy server returned unsupported authentication "
                      "method: 0x%02x", (unsigned char)self->buffer[1]);
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
     }
@@ -393,26 +397,19 @@ static void socks_handshake_input(struct conn_socks *self)
     if (self->phase == PHASE_RECV_AUTH) {
         nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
-        if (nread == -1) {
-            if (!is_ignored_skerr(errno)) {
-                perror("recv()");
-                abort();
+        if (nread <= 0) {
+            if (nread == 0 || errno != EAGAIN) {
+                socks_handshake_perror(self, nread == -1 ? errno : 0);
+                self->userev(self->userp, ~0u);
             }
             return;
         }
         self->nbuffer += nread;
 
-        /* if nbuffer == 0, handshake failed because EOF
-           if nbuffer > 2, hanshake failed because server didn't follow RFC1929
-        */
-        if (self->nbuffer == 0 || self->nbuffer > 2) {
-            if (self->nbuffer == 0) {
-                loglv(0, "Proxy server closed connection unexpectedly during "
-                         "authentication");
-            } else {
-                loglv(0, "Proxy server returned invalid auth response");
-            }
-            self->userev(self->userp, EPOLLERR);
+        /* hanshake failed because server didn't follow RFC1929 */
+        if (self->nbuffer > 2) {
+            loglv(0, "Proxy server returned invalid auth response");
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -423,7 +420,7 @@ static void socks_handshake_input(struct conn_socks *self)
         if (self->buffer[0] != 1 || self->buffer[1] != 0) {
             loglv(0, "SOCKS5 authentication failed. "
                      "Please check your username and password.");
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -442,10 +439,10 @@ static void socks_handshake_input(struct conn_socks *self)
            we can carefuly not to touch them */
         nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
-        if (nread == -1) {
-            if (!is_ignored_skerr(errno)) {
-                perror("recv()");
-                abort();
+        if (nread <= 0) {
+            if (nread == 0 || errno != EAGAIN) {
+                socks_handshake_perror(self, nread == -1 ? errno : 0);
+                self->userev(self->userp, ~0u);
             }
             return;
         }
@@ -486,10 +483,10 @@ static void socks_handshake_input(struct conn_socks *self)
         if (!pass) {
             /* failed, handshake not finished but connection lost or buffer
                full */
-            if (s == 0 || self->nbuffer == sizeof(self->buffer)) {
+            if (self->nbuffer == sizeof(self->buffer)) {
                 loglv(0, "Proxy server returned a header that is too large "
                          "during the handshake.");
-                self->userev(self->userp, EPOLLERR);
+                self->userev(self->userp, ~0u);
             }
 
             /* if not failed, wait for rest handshake message */
@@ -499,7 +496,7 @@ static void socks_handshake_input(struct conn_socks *self)
         if (hdr.ver != 5) {
             loglv(0, "Proxy server retern a bad reply: VER field is 0x%02x, "
                      "expected 0x05", hdr.ver);
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -512,7 +509,7 @@ static void socks_handshake_input(struct conn_socks *self)
                 loglv(0, "Proxy server rejected our request: %s",
                          hdr.rsp > 9 ? rspstr[9] : rspstr[hdr.rsp]);
             }
-            self->userev(self->userp, EPOLLERR);
+            self->userev(self->userp, ~0u);
             return;
         }
 
@@ -549,13 +546,6 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
     loglv(3, "socks_epcb_events: handshaking with %s:%u/%s [%s]",
              self->addr, (unsigned)self->port,
              self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
-
-    if ((events & (EPOLLERR | EPOLLHUP)) && !(events & EPOLLIN)) {
-        loglv(0, "Proxy connection closed unexpectedly during SOCKS handshake "
-                 "phase [%s]", phasestr[self->phase]);
-        self->userev(self->userp, EPOLLERR);
-        return;
-    }
 
     if (self->phase == PHASE_SEND_METHOD || self->phase == PHASE_SEND_AUTH ||
         self->phase == PHASE_SEND_REQUEST) {
