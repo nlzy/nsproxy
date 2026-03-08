@@ -112,10 +112,6 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/nd6.h"
 
-#if NSPROXY_MODIFIED
-#include "core.h"
-#endif
-
 #include <string.h>
 
 #ifdef LWIP_HOOK_FILENAME
@@ -231,27 +227,6 @@ tcp_free_listen(struct tcp_pcb *pcb)
   memp_free(MEMP_TCP_PCB_LISTEN, pcb);
 }
 
-#if NSPROXY_MODIFIED
-/* Garbage collection timer: If the gc counter is already zero, then free pcb.
- * otherwise, the counter is decremented by one. Called every 1 second.
- */
-static void
-tcp_gctmr(void)
-{
-  struct tcp_pcb *tofree, *pcb = tcp_active_pcbs;
-
-  while (pcb != NULL) {
-    if (pcb->gc-- == 0) {
-      tofree = pcb;
-      pcb = pcb->next;
-      tcp_abort(tofree);
-    } else {
-      pcb = pcb->next;
-    }
-  }
-}
-#endif
-
 /**
  * Called periodically to dispatch TCP timers.
  */
@@ -266,13 +241,6 @@ tcp_tmr(void)
        tcp_tmr() is called. */
     tcp_slowtmr();
   }
-
-#if NSPROXY_MODIFIED
-  if (tcp_timer % 4 == 0) {
-    /* call every 1000 ms */
-    tcp_gctmr();
-  }
-#endif
 }
 
 #if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG

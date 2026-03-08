@@ -33,6 +33,7 @@ struct tcp_forward {
     struct tcp_pcb *pcb;
     struct pbuf *sndq;
     struct pbuf *rcvq;
+    unsigned int gc;
     u8_t proxyeof;
     u8_t lwipeof;
 };
@@ -44,6 +45,7 @@ struct udp_forward {
     struct sk_ops *proxy;
     struct udp_pcb *pcb;
     struct pbuf *rcvq[8];
+    unsigned int gc;
     u16_t nrcvq;
 };
 
@@ -164,6 +166,7 @@ static struct tcp_forward *tcp_forward_create(struct corectx *core)
     }
 
     fwd->core = core;
+    fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
 
     /* Add to head of list */
     fwd->next = core->tcplst;
@@ -224,6 +227,7 @@ static struct udp_forward *udp_forward_create(struct corectx *core)
     }
 
     fwd->core = core;
+    fwd->gc = NSPROXY_UDP_IDLE_TIMEOUT;
 
     /* Add to head of list */
     fwd->next = core->udplst;
@@ -266,6 +270,26 @@ static void udp_forward_destroy(struct udp_forward *fwd)
     free(fwd);
 }
 
+static void core_gc_tmr(struct corectx *core)
+{
+    struct tcp_forward *tcur = core->tcplst;
+    struct udp_forward *ucur = core->udplst;
+
+    while (tcur) {
+        struct tcp_forward *next = tcur->next;
+        if (tcur->gc-- == 0)
+            tcp_forward_destroy(tcur, 1);
+        tcur = next;
+    }
+
+    while (ucur) {
+        struct udp_forward *next = ucur->next;
+        if (ucur->gc-- == 0)
+            udp_forward_destroy(ucur);
+        ucur = next;
+    }
+}
+
 static void core_tunfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct corectx *core = container_of(epcb, struct corectx, tunepcb);
@@ -283,7 +307,7 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
     while (expired--) {
         if (core->timerepoch % 4 == 0) {
-            udp_tmr();
+            core_gc_tmr(core);
             ip_reass_tmr();
             ip6_reass_tmr();
             nd6_tmr();
@@ -373,6 +397,11 @@ static void udp_proxy_input(struct udp_forward *fwd)
     struct sk_ops *proxy = fwd->proxy;
     struct udp_pcb *pcb = fwd->pcb;
 
+    /* reset gc ttl */
+    fwd->gc = fwd->pcb->local_port == 53
+        ? NSPROXY_DNS_IDLE_TIMEOUT
+        : NSPROXY_UDP_IDLE_TIMEOUT;
+
     for (;;) {
         char buffer[65535];
         ssize_t nread;
@@ -406,6 +435,11 @@ static void udp_proxy_output(struct udp_forward *fwd)
     char buffer[65535];
     ssize_t i, nsent;
     struct pbuf *p;
+
+    /* reset gc ttl */
+    fwd->gc = fwd->pcb->local_port == 53
+        ? NSPROXY_DNS_IDLE_TIMEOUT
+        : NSPROXY_UDP_IDLE_TIMEOUT;
 
     /* send all */
     for (i = 0; i < fwd->nrcvq; i++) {
@@ -512,6 +546,9 @@ void core_udp_new(struct udp_pcb *pcb)
 
     fwd = udp_forward_create(core);
     fwd->pcb = pcb;
+    fwd->gc = pcb->local_port == 53
+        ? NSPROXY_DNS_IDLE_TIMEOUT
+        : NSPROXY_UDP_IDLE_TIMEOUT;
 
     udp_recv(pcb, udp_lwip_received, fwd);
 
@@ -556,6 +593,9 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 {
     struct tcp_pcb *pcb = fwd->pcb;
     struct sk_ops *proxy = fwd->proxy;
+
+    /* reset gc ttl */
+    fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
 
     while (!fwd->proxyeof && tcp_sndbuf(pcb) > tcp_mss(pcb)
            && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2) {
@@ -630,6 +670,9 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     struct tcp_pcb *pcb = fwd->pcb;
     struct sk_ops *proxy = fwd->proxy;
     ssize_t nsent;
+
+    /* reset gc ttl */
+    fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
 
     while (fwd->rcvq) {
         nsent = proxy->send(proxy, fwd->rcvq->payload, fwd->rcvq->len);

@@ -110,13 +110,6 @@ struct udp_pcb {
   udp_recv_fn recv;
   /** user-supplied argument for the recv callback */
   void *recv_arg;
-
-#if NSPROXY_MODIFIED
-    /* pcb time-to-live in seconds, decrease every seconds, if reached to zero,
-       release this pcb, if a activity on this pcb, reset value to timeout
-    */
-    u16_t gc;
-#endif
 };
 /* udp_pcbs export for external reference (e.g. SNMP agent) */
 extern struct udp_pcb *udp_pcbs;

@@ -388,11 +388,7 @@ struct tcp_pcb {
 #endif
 
 #if NSPROXY_MODIFIED
-  /* remain seconds to destory this pcb, decrease by 1 every second,
-     if reach to 0, destory this pcb
-  */
-  u16_t gc;
-
+  /* don't send anything before proxy connected, especially SYN+ACK */
   u8_t proxyestab;
 #endif
 };

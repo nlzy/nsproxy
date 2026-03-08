@@ -325,11 +325,6 @@ udp_input(struct pbuf *p, struct netif *inp)
     udp_pcbs = pcb;
     core_udp_new(pcb);
   }
-  if (pcb != NULL) {
-    pcb->gc = pcb->local_port == 53
-      ? NSPROXY_DNS_IDLE_TIMEOUT
-      : NSPROXY_UDP_IDLE_TIMEOUT;
-  }
 #endif
 
   /* Check checksum if this is a match or if it was directed at us. */
@@ -930,12 +925,6 @@ udp_sendto_if_src_chksum(struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *d
     /* p is still referenced by the caller, and will live on */
   }
 
-#if NSPROXY_MODIFIED
-  pcb->gc = pcb->local_port == 53
-    ? NSPROXY_DNS_IDLE_TIMEOUT
-    : NSPROXY_UDP_IDLE_TIMEOUT;
-#endif
-
   UDP_STATS_INC(udp.xmit);
   return err;
 }
@@ -1342,26 +1331,5 @@ udp_debug_print(struct udp_hdr *udphdr)
   LWIP_DEBUGF(UDP_DEBUG, ("+-------------------------------+\n"));
 }
 #endif /* UDP_DEBUG */
-
-#if NSPROXY_MODIFIED
-/* Garbage collection timer: If the gc counter is already zero, then free pcb.
- * otherwise, the counter is decremented by one. Called every 1 second.
- */
-void
-udp_tmr(void)
-{
-  struct udp_pcb *tofree, *pcb = udp_pcbs;
-
-  while (pcb != NULL) {
-    if (pcb->gc-- == 0) {
-      tofree = pcb;
-      pcb = pcb->next;
-      udp_remove(tofree);
-    } else {
-      pcb = pcb->next;
-    }
-  }
-}
-#endif
 
 #endif /* LWIP_UDP */

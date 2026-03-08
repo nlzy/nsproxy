@@ -830,10 +830,6 @@ tcp_process(struct tcp_pcb *pcb)
 
   LWIP_ASSERT("tcp_process: invalid pcb", pcb != NULL);
 
-#ifdef NSPROXY_MODIFIED
-  pcb->gc = NSPROXY_TCP_IDLE_TIMEOUT;
-#endif
-
   /* Process incoming RST segments. */
   if (flags & TCP_RST) {
     /* First, determine if the reset is acceptable. */

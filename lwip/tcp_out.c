@@ -78,10 +78,6 @@
 #include "lwip/sys.h"
 #endif
 
-#if NSPROXY_MODIFIED
-#include "core.h"
-#endif
-
 #include <string.h>
 
 #ifdef LWIP_HOOK_FILENAME
@@ -1624,10 +1620,6 @@ tcp_output_segment(struct tcp_seg *seg, struct tcp_pcb *pcb, struct netif *netif
     seg->chksum = SWAP_BYTES_IN_WORD(seg->chksum);
     seg->chksum_swapped = 1;
   }
-#endif
-
-#ifdef NSPROXY_MODIFIED
-  pcb->gc = NSPROXY_TCP_IDLE_TIMEOUT;
 #endif
 
   return err;
