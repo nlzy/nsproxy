@@ -110,9 +110,20 @@ def proxy_server(request):
         proc.wait()
 
 
-@pytest.fixture(params=["normal", "valgrind"], ids=["normal", "valgrind"])
+def pytest_addoption(parser):
+    parser.addoption(
+        "--valgrind",
+        action="store_true",
+        default=False,
+        help="Run tests with valgrind memory checker",
+    )
+
+
+@pytest.fixture
 def execution_mode(request):
-    return request.param
+    if request.config.getoption("--valgrind"):
+        return "valgrind"
+    return "normal"
 
 
 @pytest.fixture

@@ -32,16 +32,8 @@ USAGE
 Run following commands in the project root directory, not in tests/
 
 To run all tests:
+
    pytest -v tests/
-
-To run only normal tests (skip Valgrind):
-   pytest -v -k "normal" tests/
-
-To run only tests with specified proxy backend (e.g. singbox):
-   pytest -v -k "singbox" tests/
-
-To see detailed logs (including nsproxy verbose logs and Valgrind reports):
-   pytest -v -s tests/
 
 Note: nsproxy runs in verbose mode (`-vvv`) only when pytest is run with
 verbose mode (`-v`).
@@ -50,10 +42,12 @@ verbose mode (`-v`).
 VALGRIND TESTING
 ----------------
 
-The Valgrind test suite is integrated into the standard pytest flow via 
-parameterization.
+To run tests with Valgrind memory checker, use the `--valgrind` option:
 
-To run Valgrind tests correctly, the project should be compiled without 
-Address Sanitizer (ASan). Use the following build command:
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="-g -O0 -fno-omit-frame-pointer"
-  cmake --build build
+   pytest -v tests/ --valgrind
+
+The project should be compiled without Address Sanitizer (ASan). Use the
+following build command:
+
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_FLAGS="-fno-omit-frame-pointer"
+   cmake --build build
