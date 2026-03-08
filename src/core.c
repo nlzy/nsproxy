@@ -479,10 +479,9 @@ static void udp_proxy_io_event(void *userp, unsigned int event)
        Other failures (e.g. ECONNABORTED) handled here, others part of this
        program could simplely retry when IO error occured.
     */
-    if (event & (EPOLLERR | EPOLLHUP)) {
-        fwd->proxy->put(fwd->proxy);
-        fwd->proxy = NULL;
-        udp_remove(fwd->pcb);
+    if (event & EPOLLERR) {
+        loglv(3, "udp_proxy_io_event: proxy error, force destroy fwd");
+        udp_forward_destroy(fwd);
         return;
     }
 
@@ -506,7 +505,7 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     if (!p) {
         /* should not happen */
-        udp_remove(pcb);
+        udp_forward_destroy(fwd);
         return;
     }
 
@@ -517,7 +516,7 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         pbuf_header_force(p, (s16_t)(ip_current_header_tot_len() + UDP_HLEN));
         icmp_port_unreach(ip_current_is_v6(), p);
         pbuf_free(p);
-        udp_remove(pcb);
+        udp_forward_destroy(fwd);
         return;
     }
 
