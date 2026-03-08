@@ -545,65 +545,85 @@ void core_udp_new(struct udp_pcb *pcb)
     }
 }
 
-/* try to recv data from proxy server and send to application */
+/* try to recv data from proxy server and send to application
+   may called from lwip context if
+   - data are ack'ed by lwip
+   may called from epoll contest if
+   - data are received from proxy server, in socket buffer
+   - EOF is received from proxy server
+*/
 static err_t tcp_proxy_input(struct tcp_forward *fwd)
 {
     struct tcp_pcb *pcb = fwd->pcb;
     struct sk_ops *proxy = fwd->proxy;
 
-    for (; tcp_sndbuf(pcb) && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN - 4;) {
+    while (!fwd->proxyeof && tcp_sndbuf(pcb) > tcp_mss(pcb)
+           && tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2) {
         ssize_t nread;
         struct pbuf *p;
 
-        if ((p = pbuf_alloc(PBUF_RAW, LWIP_MIN(tcp_mss(pcb), tcp_sndbuf(pcb)),
-                            PBUF_RAM)) == NULL) {
+        if ((p = pbuf_alloc(PBUF_RAW, tcp_mss(pcb), PBUF_RAM)) == NULL) {
             fprintf(stderr, "Out of Memory.\n");
             abort();
         }
 
         nread = proxy->recv(proxy, p->payload, p->len);
-        pbuf_realloc(p, nread); /* set the acture length to p->tot_len */
-
-        if (nread < 0) {
+        if (nread == -EAGAIN) {
+            proxy->evctl(proxy, EPOLLIN, 1);
             pbuf_free(p);
-            if (nread != -EAGAIN) {
-                loglv(3, "tcp_proxy_input: proxy error, force destroy fwd");
-                tcp_forward_destroy(fwd, 1);
-                return ERR_ABRT;
-            } else {
-                proxy->evctl(proxy, EPOLLIN, 1);
-                return ERR_OK;
-            }
-        }
-
-        if (nread == 0) {
+            return ERR_OK;
+        } else if (nread < 0) {
+            loglv(3, "tcp_proxy_input: proxy error, force destroy fwd");
+            tcp_forward_destroy(fwd, 1);
+            pbuf_free(p);
+            return ERR_ABRT;
+        } else if (nread == 0) {
             loglv(3, "tcp_proxy_input: received EOF from proxy");
             fwd->proxyeof = 1;
             pbuf_free(p);
-            break;
-        }
+        } else {
+            /* set acture length for pbuf */
+            pbuf_realloc(p, nread);
 
-        /* send to application and enqueue to fwd->sndq */
-        if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
-            fprintf(stderr, "Out of Memory.\n");
-            abort();
-        }
-        if (fwd->sndq == NULL)
-            fwd->sndq = p;
-        else
-            pbuf_cat(fwd->sndq, p);
+            /* send to application and enqueue to fwd->sndq */
+            if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
+                fprintf(stderr, "Out of Memory.\n");
+                abort();
+            }
+            /* p is moved into fwd->sndq, don't free */
+            if (fwd->sndq == NULL)
+                fwd->sndq = p;
+            else
+                pbuf_cat(fwd->sndq, p);
 
-        /* p is moved into fwd->sndq, don't free */
-
-        tcp_output(pcb); /* don't delay */
+            tcp_output(pcb); /* don't delay */
+        } 
     }
 
+    /* no space in sndq available or proxy EOF, stop polling EPOLLIN */
     proxy->evctl(proxy, EPOLLIN, 0);
+
+    /* received EOF from proxy, and all datas has been sent to lwip,
+       forward this EOF to lwip now */
+    if (fwd->proxyeof && !fwd->sndq) {
+        loglv(3, "tcp_lwip_sent: sndq drained, half-closing lwip");
+        tcp_shutdown(pcb, 0, 1);
+        if (fwd->lwipeof && !fwd->rcvq) {
+            loglv(3, "tcp_lwip_sent: full-closing");
+            tcp_forward_destroy(fwd, 0);
+        }
+    }
 
     return ERR_OK;
 }
 
-/* try to send data to proxy server, data already in fwd->rcvq */
+/* try to send data to proxy server
+   called from lwip context if
+   - data are received from lwip, in fwd->rcvq
+   - EOF is reveived from lwip
+   called from epoll contest if:
+   - there is some free space available in socket buffer
+*/
 static err_t tcp_proxy_output(struct tcp_forward *fwd)
 {
     struct tcp_pcb *pcb = fwd->pcb;
@@ -612,20 +632,17 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
 
     while (fwd->rcvq) {
         nsent = proxy->send(proxy, fwd->rcvq->payload, fwd->rcvq->len);
-
-        if (nsent < 0) {
-            if (nsent != -EAGAIN) {
-                loglv(3, "tcp_proxy_output: proxy error, force destroy fwd");
-                tcp_forward_destroy(fwd, 1);
-                return ERR_ABRT;
-            } else {
-                proxy->evctl(proxy, EPOLLOUT, 1);
-                return ERR_OK;
-            }
+        if (nsent == -EAGAIN) {
+            proxy->evctl(proxy, EPOLLOUT, 1);
+            return ERR_OK;
+        } else if (nsent < 0) {
+            loglv(3, "tcp_proxy_output: proxy error, force destroy fwd");
+            tcp_forward_destroy(fwd, 1);
+            return ERR_ABRT;
+        } else {
+            fwd->rcvq = pbuf_free_header(fwd->rcvq, nsent);
+            tcp_recved(pcb, nsent);
         }
-
-        fwd->rcvq = pbuf_free_header(fwd->rcvq, nsent);
-        tcp_recved(pcb, nsent);
     }
 
     /* rcvq is now empty, stop polling EPOLLOUT */
@@ -676,7 +693,7 @@ static void tcp_proxy_io_event(void *userp, unsigned int event)
 }
 
 /* called by lwip when application acked data,
-    this funcion free sending queue, and ask more data from proxy server
+   this funcion free sending queue, and ask more data from proxy server
 */
 static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
 {
@@ -688,24 +705,7 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
     /* ask proxy server for more data, if we have space in queue */
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
-            /* if proxy EOF, we neet to skip, and wait lwip continue calling
-               this function until sndq is empty */
-            if (!fwd->proxyeof) {
-                err_t err = tcp_proxy_input(fwd);
-                if (err != ERR_OK)
-                    return err;
-            }
-
-    /* received EOF from proxy, and all datas has been sent to lwip,
-       forward this EOF to lwip now */
-    if (fwd->proxyeof && !fwd->sndq) {
-        loglv(3, "tcp_lwip_sent: sndq drained, half-closing lwip");
-        tcp_shutdown(pcb, 0, 1);
-        if (fwd->lwipeof && !fwd->rcvq) {
-            loglv(3, "tcp_lwip_sent: full-closing");
-            tcp_forward_destroy(fwd, 0);
-        }
-    }
+                return tcp_proxy_input(fwd);
 
     return ERR_OK;
 }
@@ -717,17 +717,7 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
                                err_t err)
 {
     struct tcp_forward *fwd = arg;
-    struct sk_ops *proxy = fwd->proxy;
-
-    if (!proxy) {
-        /* lost connection to proxy server, abort connection */
-        tcp_abort(pcb);
-        if (p)
-            pbuf_free(p);
-        return ERR_ABRT;
-    }
-
-    tcp_ack(pcb); /* ack immediately */
+    err_t ret;
 
     if (p) {
         /* here's some data need enqueue, rcvq should not full */
@@ -740,7 +730,12 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
         fwd->lwipeof = 1;
     }
 
-    return tcp_proxy_output(fwd);
+    ret = tcp_proxy_output(fwd);
+
+    if (ret == ERR_OK)
+        tcp_ack(pcb); /* ack immediately */
+
+    return ret;
 }
 
 static void tcp_lwip_err(void *arg, err_t err)
