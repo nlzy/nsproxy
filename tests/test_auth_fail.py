@@ -9,29 +9,15 @@ Tests:
 ------
 test_http_auth_fail
     Tests connection to HTTP proxy with wrong password.
-    - Uses HTTP proxy on port 38081 (auth required)
-    - Provides wrong credentials: testuser:wrongpass
-    - Expects error message in stderr
-    - Verifies server does not receive any data
 
 test_http_auth_missing
     Tests connection to HTTP proxy without providing credentials.
-    - Uses HTTP proxy on port 38081 (auth required)
-    - No -a flag provided
-    - Expects error message in stderr
-    - Verifies server does not receive any data
 
 test_socks5_auth_fail
     Tests connection to SOCKS5 proxy with wrong password.
-    - Uses SOCKS5 proxy on port 31081 (auth required)
-    - Provides wrong credentials: testuser:wrongpass
-    - Expects error message in stderr
 
 test_socks5_auth_missing
     Tests connection to SOCKS5 proxy without providing credentials.
-    - Uses SOCKS5 proxy on port 31081 (auth required)
-    - No -a flag provided
-    - Expects error message in stderr
 
 Usage:
 ------
@@ -119,16 +105,7 @@ def test_http_auth_fail(proxy_server, nsproxy_runner):
     """Try to connect with wrong password through HTTP proxy"""
     _test_auth_failure(
         nsproxy_runner,
-        [
-            "-H",
-            "-a",
-            "testuser:wrongpass",
-            "-s",
-            "127.0.0.1",
-            "-p",
-            str(HTTP_AUTH_PORT),
-        ],
-        is_udp=False,
+        [ "-H", "-a", "testuser:wrongpass", "-s", "127.0.0.1", "-p", str(HTTP_AUTH_PORT) ]
     )
 
 
@@ -136,14 +113,7 @@ def test_http_auth_missing(proxy_server, nsproxy_runner):
     """Try to connect without auth to HTTP proxy that requires it"""
     _test_auth_failure(
         nsproxy_runner,
-        [
-            "-H",
-            "-s",
-            "127.0.0.1",
-            "-p",
-            str(HTTP_AUTH_PORT),
-        ],
-        is_udp=False,
+        [ "-H", "-s", "127.0.0.1", "-p", str(HTTP_AUTH_PORT) ]
     )
 
 
@@ -151,15 +121,7 @@ def test_socks5_auth_fail(proxy_server, nsproxy_runner):
     """Try to connect with wrong password through SOCKS5 proxy"""
     _test_auth_failure(
         nsproxy_runner,
-        [
-            "-a",
-            "testuser:wrongpass",
-            "-s",
-            "127.0.0.1",
-            "-p",
-            str(SOCKS_AUTH_PORT),
-        ],
-        is_udp=False,
+        [ "-a", "testuser:wrongpass", "-s", "127.0.0.1", "-p", str(SOCKS_AUTH_PORT) ]
     )
 
 
@@ -167,11 +129,5 @@ def test_socks5_auth_missing(proxy_server, nsproxy_runner):
     """Try to connect without auth to SOCKS5 proxy that requires it"""
     _test_auth_failure(
         nsproxy_runner,
-        [
-            "-s",
-            "127.0.0.1",
-            "-p",
-            str(SOCKS_AUTH_PORT),
-        ],
-        is_udp=False,
+        [ "-s", "127.0.0.1", "-p", str(SOCKS_AUTH_PORT) ]
     )

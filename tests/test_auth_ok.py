@@ -1,45 +1,32 @@
 """
-Direct Connection Tests
-=======================
+Authentication Success Tests
+============================
 
-These tests verify that nsproxy can work in direct mode (-D flag) without
-requiring a proxy server. The traffic is forwarded directly to the target
-server.
+These tests verify that nsproxy can successfully authenticate with proxies
+that require username/password authentication.
 
 Tests:
 ------
-test_direct_tcp
-    Tests TCP connection in direct mode using tcp_pingpong tool.
-    - Starts tcp_pingpong server on port 37777
-    - Runs tcp_pingpong client through nsproxy with -D flag
-    - Verifies bidirectional data transfer (100KB each way)
-    - Client sends 'c' * 100000, server sends 's' * 100000
-    - Checks for SERVER-RECV-OK and CLIENT-RECV-OK output
+test_http_auth_ok
+    Tests HTTP proxy TCP connection with authentication.
 
-test_direct_udp
-    Tests UDP connection in direct mode using udp_pingpong tool.
-    - Starts udp_pingpong server on port 37777
-    - Runs udp_pingpong client through nsproxy with -D flag
-    - Verifies bidirectional data transfer (1KB each way)
-    - Client sends 'c' * 1000, server sends 's' * 1000
-    - Checks for SERVER-RECV-OK and CLIENT-RECV-OK output
+test_socks5_auth_ok
+    Tests SOCKS5 TCP connection with authentication.
 
 Usage:
 ------
-    pytest -v tests/test_direct.py
-    pytest -v -k "direct" tests/
+    pytest -v tests/test_auth_ok.py
+    pytest -v -k "auth" tests/
 """
 
 import subprocess
 import time
-from .conftest import LOCAL_IP
+from .conftest import LOCAL_IP, HTTP_AUTH_PORT, SOCKS_AUTH_PORT
 
 
-def _run_pingpong_test(nsproxy_runner, extra_args, is_udp=False):
-    """Run pingpong test (TCP or UDP) through nsproxy"""
-    pingpong_script = (
-        "tests/tools/udp_pingpong.py" if is_udp else "tests/tools/tcp_pingpong.py"
-    )
+def _run_tcp_pingpong_test(nsproxy_runner, extra_args):
+    """Run TCP pingpong test through nsproxy"""
+    pingpong_script = "tests/tools/tcp_pingpong.py"
     pingpong_port = 37777
 
     # Start the pingpong server
@@ -103,11 +90,17 @@ def _run_pingpong_test(nsproxy_runner, extra_args, is_udp=False):
                 server_proc.kill()
 
 
-def test_direct_tcp(nsproxy_runner):
-    """Test direct TCP connection through nsproxy (no proxy)"""
-    _run_pingpong_test(nsproxy_runner, ["-D"], is_udp=False)
+def test_http_auth_ok(proxy_server, nsproxy_runner):
+    """Test HTTP proxy TCP connection with authentication"""
+    _run_tcp_pingpong_test(
+        nsproxy_runner,
+        ["-H", "-a", "testuser:testpass", "-s", "127.0.0.1", "-p", str(HTTP_AUTH_PORT)],
+    )
 
 
-def test_direct_udp(nsproxy_runner):
-    """Test direct UDP connection through nsproxy (no proxy)"""
-    _run_pingpong_test(nsproxy_runner, ["-D"], is_udp=True)
+def test_socks5_auth_ok(proxy_server, nsproxy_runner):
+    """Test SOCKS5 TCP connection with authentication"""
+    _run_tcp_pingpong_test(
+        nsproxy_runner,
+        ["-a", "testuser:testpass", "-s", "127.0.0.1", "-p", str(SOCKS_AUTH_PORT)],
+    )
