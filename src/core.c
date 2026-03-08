@@ -19,6 +19,7 @@
 #include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/udp.h"
+#include "lwip/ip6_addr.h"
 
 #include "direct.h"
 #include "dns.h"
@@ -324,6 +325,7 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     ip4_addr_t tunaddr;
     ip4_addr_t tunnetmask;
     ip4_addr_t tungateway;
+    ip6_addr_t tunaddr6;
     struct itimerspec its = { .it_interval.tv_nsec = 250000000,
                               .it_value.tv_nsec = 250000000 };
 
@@ -362,6 +364,12 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     netif_set_default(&p->tunif);
     netif_set_link_up(&p->tunif);
     netif_set_up(&p->tunif);
+
+    if (current_nspconf()->ipv6) {
+        ip6addr_aton(NSPROXY_GATEWAY_IPV6, &tunaddr6);
+        netif_ip6_addr_set(&p->tunif, 0, &tunaddr6);
+        netif_ip6_addr_set_state(&p->tunif, 0, IP6_ADDR_PREFERRED);
+    }
 
     loglv(3, "core_init: corectx and lwip initialized");
 

@@ -68,6 +68,10 @@ Options:
         Redirect DNS requests to specified UDP nameserver.
     Default value is "tcp://1.1.1.1"
 
+  -6,
+    Enable IPv6 support.
+    Default is disable
+
   -v
     Verbose mode. Use "-vv" or "-vvv" for more verbose.
 
@@ -91,7 +95,6 @@ namespace, not the host.
 TODO
 ----------
 
- - IPv6
  - fullcone NAT
 
 

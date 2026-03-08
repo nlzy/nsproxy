@@ -465,6 +465,9 @@ ip6_forward(struct pbuf *p, struct ip6_hdr *iphdr, struct netif *inp)
 static int
 ip6_input_accept(struct netif *netif)
 {
+#if NSPROXY_MODIFIED
+  return 1;
+#endif
   /* interface is up? */
   if (netif_is_up(netif)) {
     u8_t i;

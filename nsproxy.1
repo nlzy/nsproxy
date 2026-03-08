@@ -4,7 +4,7 @@ nsproxy \- unprivileged network namespace proxy
 .SH SYNOPSIS
 \fBnsproxy\fR \fB\-h\fR | \fB\-\-help\fR
 .br
-\fBnsproxy\fR [\fB\-H\fR] [\fB\-s\fR \fIserver\fR] [\fB\-p\fR \fIport\fR] [\fB\-d\fR \fIdns\fR] [\fB\-a\fR \fIuser:password\fR] [\fB\-v\fR|\fB\-q\fR] \fIcommand\fR [\fIargs...\fR]
+\fBnsproxy\fR [\fB\-H\fR] [\fB\-6\fR] [\fB\-s\fR \fIserver\fR] [\fB\-p\fR \fIport\fR] [\fB\-d\fR \fIdns\fR] [\fB\-a\fR \fIuser:password\fR] [\fB\-v\fR|\fB\-q\fR] \fIcommand\fR [\fIargs...\fR]
 .SH DESCRIPTION
 \fBnsproxy\fR is a Linux-specific command-line tool that forces applications to use a specific SOCKS5 or HTTP proxy.
 .PP
@@ -42,6 +42,9 @@ Default is "tcp://1.1.1.1".
 .TP
 .BI \-a " user:password"
 Proxy authentication (SOCKS5 or HTTP Basic Auth).
+.TP
+.B \-6
+Enable IPv6 support.
 .TP
 .B \-v
 Verbose mode. Increase verbosity with multiple \fB\-v\fR (e.g., \fB\-vv\fR or \fB\-vvv\fR).

@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <linux/if_tun.h>
+#include <linux/ipv6.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netdb.h>
@@ -49,6 +50,8 @@ static void print_help(void)
            "        Redirect DNS requests to specified UDP nameserver.\n"
            "  -a <user:password>\n"
            "    Proxy authentication (SOCKS5 or HTTP Basic Auth).\n"
+           "  -6\n"
+           "    Enable IPv6 support.\n"
            "  -v\n"
            "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
            "  -q\n"
@@ -120,6 +123,10 @@ static void bringup_loopback(void)
         abort();
     }
 
+    if (!current_nspconf()->ipv6) {
+        write_string("/proc/sys/net/ipv6/conf/lo/disable_ipv6", "1");
+    }
+
     if (ioctl(sk, SIOCSIFFLAGS, &ifr) == -1) {
         perror("ioctl()");
         abort();
@@ -140,6 +147,7 @@ static int bringup_tun(void)
         abort();
     }
 
+    /* create tun0 */
     if ((tunfd = open("/dev/net/tun", O_RDWR | O_CLOEXEC)) == -1) {
         if (errno == ENOENT) {
             fprintf(stderr, "nsproxy: open \"/dev/net/tun\" failed.\n"
@@ -147,77 +155,125 @@ static int bringup_tun(void)
                             "support enabled.\n");
             exit(EXIT_FAILURE);
         } else {
-            perror("open()");
+            perror("open(/dev/net/tun)");
             abort();
         }
     }
-
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     if (ioctl(tunfd, TUNSETIFF, &ifr) == -1) {
-        perror("ioctl()");
+        perror("ioctl(TUNSETIFF)");
         abort();
     }
 
-    ifr.ifr_flags = IFF_UP | IFF_RUNNING;
-    if (ioctl(sk, SIOCSIFFLAGS, &ifr) == -1) {
-        perror("ioctl()");
-        abort();
-    }
-
+    /* configure tun0 */
     ifr.ifr_mtu = NSPROXY_MTU;
     if (ioctl(sk, SIOCSIFMTU, &ifr) == -1) {
-        perror("ioctl()");
+        perror("ioctl(SIOCSIFMTU)");
+        abort();
+    }
+    if (current_nspconf()->ipv6) {
+        /* return value is not checked, failure is allowed. */
+        write_string("/proc/sys/net/ipv6/conf/tun0/"
+                     "mldv1_unsolicited_report_interval", "0");
+        write_string("/proc/sys/net/ipv6/conf/tun0/"
+                     "mldv2_unsolicited_report_interval", "0");
+        write_string("/proc/sys/net/ipv6/conf/tun0/router_solicitations", "0");
+    } else {
+        write_string("/proc/sys/net/ipv6/conf/tun0/disable_ipv6", "1");
+    }
+
+    /* up tun0 */
+    ifr.ifr_flags = IFF_UP | IFF_RUNNING;
+    if (ioctl(sk, SIOCSIFFLAGS, &ifr) == -1) {
+        perror("ioctl(SIOCSIFFLAGS)");
         abort();
     }
 
+    /* configure IPv4 addr */
     sai = (struct sockaddr_in *)&ifr.ifr_addr;
     sai->sin_family = AF_INET;
-
     inet_pton(AF_INET, NSPROXY_LOCAL_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFADDR, &ifr) < 0) {
-        perror("ioctl()");
+        perror("ioctl(SIOCSIFADDR)");
         abort();
     }
-
     inet_pton(AF_INET, NSPROXY_GATEWAY_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCGIFDSTADDR, &ifr) < 0) {
-        perror("ioctl()");
+        perror("ioctl(SIOCGIFDSTADDR)");
         abort();
     }
-
     inet_pton(AF_INET, NSPROXY_NETMASK, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFNETMASK, &ifr) < 0) {
-        perror("cannot set device netmask");
+        perror("ioctl(SIOCSIFNETMASK)");
         abort();
     }
 
+    /* configure IPv4 route */
     sai = (struct sockaddr_in *)&route.rt_gateway;
     sai->sin_family = AF_INET;
     inet_pton(AF_INET, NSPROXY_GATEWAY_IP, &sai->sin_addr);
-
     sai = (struct sockaddr_in *)&route.rt_dst;
     sai->sin_family = AF_INET;
     sai->sin_addr.s_addr = INADDR_ANY;
-
     sai = (struct sockaddr_in *)&route.rt_genmask;
     sai->sin_family = AF_INET;
     sai->sin_addr.s_addr = INADDR_ANY;
-
     route.rt_flags = RTF_UP | RTF_GATEWAY;
     route.rt_metric = 0;
     route.rt_dev = ifr.ifr_name;
-
     if (ioctl(sk, SIOCADDRT, &route) < 0) {
-        perror("set route");
+        perror("ioctl(SIOCADDRT)");
         abort();
     }
 
-    loglv(3, "child: brought up tun device "
-             "(local ip: %s, gateway ip: %s, netmask: %s)",
-             NSPROXY_LOCAL_IP, NSPROXY_GATEWAY_IP, NSPROXY_NETMASK);
+    loglv(3, "child: brought up tun device and configured IPv4");
 
     close(sk);
     return tunfd;
+}
+
+static void setup_ipv6(void)
+{
+    int sk;
+    struct ifreq ifr = { .ifr_name = "tun0" };
+    struct in6_ifreq ifr6 = {0};
+    struct in6_rtmsg rtmsg6 = {0};
+
+    if ((sk = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1) {
+        perror("socket()");
+        abort();
+    }
+
+    if (ioctl(sk, SIOCGIFINDEX, &ifr) < 0) {
+        perror("ioctl(SIOCGIFINDEX)");
+        abort();
+    }
+
+    /* add ipv6 address */
+    inet_pton(AF_INET6, NSPROXY_LOCAL_IPV6, &ifr6.ifr6_addr);
+    ifr6.ifr6_prefixlen = NSPROXY_PREFIXLEN;
+    ifr6.ifr6_ifindex = ifr.ifr_ifindex;
+
+    if (ioctl(sk, SIOCSIFADDR, &ifr6) < 0) {
+        perror("ioctl(SIOCSIFADDR) IPv6");
+        abort();
+    }
+
+    /* add ipv6 default gateway */
+    inet_pton(AF_INET6, NSPROXY_GATEWAY_IPV6, &rtmsg6.rtmsg_gateway);
+    rtmsg6.rtmsg_dst_len = 0;  /* ::/0 */
+    rtmsg6.rtmsg_src_len = 0;
+    rtmsg6.rtmsg_metric = 1;
+    rtmsg6.rtmsg_flags = RTF_UP | RTF_GATEWAY;
+    rtmsg6.rtmsg_ifindex = ifr.ifr_ifindex;
+
+    if (ioctl(sk, SIOCADDRT, &rtmsg6) < 0) {
+        perror("ioctl(SIOCADDRT) IPv6");
+        abort();
+    }
+
+    loglv(3, "child: configured IPv6");
+    close(sk);
 }
 
 /* create mount namespace, and make it isolate really */
@@ -379,8 +435,6 @@ static int parent(int sk)
     if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == -1) {
         loglv(0, "Warning: Failed to set child subreaper, "
                  "grandchild processes may not be tracked.");
-    } else {
-        loglv(3, "parent: set as child subreaper");
     }
 
     tunfd = recv_fd(sk);
@@ -466,8 +520,6 @@ static int child(int sk, char *cmd[])
         loglv(3, "child: created net namespace");
     }
 
-    /* return value is not checked, failure is allowed. */
-    write_string("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
 
     if (conf->dnstype != DNS_REDIR_OFF) {
         if (unshare_mount() == 0) {
@@ -482,6 +534,9 @@ static int child(int sk, char *cmd[])
     bringup_loopback();
 
     tunfd = bringup_tun();
+
+    if (conf->ipv6)
+        setup_ipv6();
 
     send_fd(sk, tunfd);
 
@@ -526,7 +581,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv")) != -1) {
+    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv6")) != -1) {
         switch (opt) {
         case 'h':
             print_help();
@@ -536,6 +591,9 @@ int main(int argc, char *argv[])
             break;
         case 'D':
             isdirect = 1;
+            break;
+        case '6':
+            conf.ipv6 = 1;
             break;
         case 's':
             serv = optarg;

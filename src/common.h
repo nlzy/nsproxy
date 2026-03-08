@@ -60,6 +60,7 @@ struct nspconf {
     uint8_t dnstype;
     char proxyuser[64];   /* Proxy username for authentication */
     char proxypass[64];   /* Proxy password for authentication */
+    uint8_t ipv6;
 };
 
 
