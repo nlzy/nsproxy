@@ -324,7 +324,7 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
     master->loop = loop;
 
     /* perform connect */
-    if (strlen(addr) >= 128) {
+    if (strlen(addr) >= SERVNAME_MAXLEN) {
         free(master);
         return NULL;
     }

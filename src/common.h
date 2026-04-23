@@ -52,14 +52,21 @@ enum {
     PROXY_DIRECT
 };
 
+/* rfc1035(domain name): the total length of a domain name is restricted to 255
+   octets or less */
+#define SERVNAME_MAXLEN 255
+
+/* rfc1929(socks5 auth): length of UNAME / PASSWD could be 1-255 */
+#define AUTH_MAXLEN 255
+
 struct nspconf {
-    char proxysrv[64];
+    char proxysrv[SERVNAME_MAXLEN + 1];
     uint16_t proxyport;
     uint8_t proxytype;
-    char dnssrv[128];
+    char dnssrv[SERVNAME_MAXLEN + 1];
     uint8_t dnstype;
-    char proxyuser[64];   /* Proxy username for authentication */
-    char proxypass[64];   /* Proxy password for authentication */
+    char proxyuser[AUTH_MAXLEN + 1];   /* Proxy username for authentication */
+    char proxypass[AUTH_MAXLEN + 1];   /* Proxy password for authentication */
     uint8_t ipv6;
 };
 

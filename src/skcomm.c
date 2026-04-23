@@ -17,7 +17,7 @@ int skcomm_common_connect(struct sk_comm *comm, const char *addr,
     struct addrinfo *result;
     char strport[8];
 
-    if (strlen(addr) >= 128)
+    if (strlen(addr) >= SERVNAME_MAXLEN)
         return -EINVAL;
 
     snprintf(strport, sizeof(strport), "%u", (unsigned int)port);

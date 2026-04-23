@@ -362,7 +362,7 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     /* perform connect */
     loglv(3, "http_tcp_create: connecting %s:%u/tcp", addr, (unsigned)port);
 
-    if (strlen(addr) >= 128) {
+    if (strlen(addr) >= SERVNAME_MAXLEN) {
         free(self);
         return NULL;
     }

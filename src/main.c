@@ -707,8 +707,8 @@ int main(int argc, char *argv[])
 
     /* command line config initialized, print it */
     if (nsproxy_verbose_level__ >= 0) {
-        char dispserv[256] = { 0 };
-        char dispdns[256] = { 0 };
+        char dispserv[SERVNAME_MAXLEN + 128] = { 0 };
+        char dispdns[SERVNAME_MAXLEN + 128] = { 0 };
 
         if (conf.proxytype == PROXY_SOCKS5)
             snprintf(dispserv, sizeof(dispserv), "socks5://%s:%u",

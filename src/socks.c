@@ -720,7 +720,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     loglv(3, "socks_create_impl: connecting %s:%u/%s",
              addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
 
-    if (strlen(addr) >= 128) {
+    if (strlen(addr) >= SERVNAME_MAXLEN) {
         free(self);
         return NULL;
     }
