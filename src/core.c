@@ -567,8 +567,8 @@ void core_udp_new(struct udp_pcb *pcb)
             return;
         }
         if (conf->dnstype == DNS_REDIR_TCP) {
-            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd);
-            fwd->proxy->connect(fwd->proxy, conf->dnssrv, port);
+            fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd,
+                                       conf->dnssrv, port);
             return;
         }
         if (conf->dnstype == DNS_REDIR_UDP) {
@@ -578,14 +578,14 @@ void core_udp_new(struct udp_pcb *pcb)
     }
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd);
-        fwd->proxy->connect(fwd->proxy, addr, port);
+        fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                      addr, port);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
         fwd->proxy = NULL;
     } else {
-        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd);
-        fwd->proxy->connect(fwd->proxy, addr, port);
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                       addr, port);
     }
 }
 
@@ -820,13 +820,16 @@ void core_tcp_new(struct tcp_pcb *pcb)
     tcp_err(pcb, &tcp_lwip_err);
 
     if (conf->proxytype == PROXY_SOCKS5) {
-        fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd);
+        fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
+                                      ipaddr_ntoa(&pcb->local_ip),
+                                      pcb->local_port);
     } else if (conf->proxytype == PROXY_HTTP) {
-        fwd->proxy = http_tcp_create(core->loop, &tcp_proxy_io_event, fwd);
+        fwd->proxy = http_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
+                                     ipaddr_ntoa(&pcb->local_ip),
+                                     pcb->local_port);
     } else {
-        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd);
+        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
+                                       ipaddr_ntoa(&pcb->local_ip),
+                                       pcb->local_port);
     }
-
-    fwd->proxy->connect(fwd->proxy, ipaddr_ntoa(&pcb->local_ip),
-                        pcb->local_port);
 }

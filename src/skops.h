@@ -9,12 +9,6 @@
    Passing this pointer back as first argument is required.
  */
 struct sk_ops {
-    /* connect funcion.
-       argument addr should pointing to a string,
-       should call this funcion before sending or receiving data,
-    */
-    int (*connect)(struct sk_ops *conn, const char *addr, uint16_t port);
-
     /* shutdown function
        argument how is same as shutdown(2), mostly used for TCP half-close
      */

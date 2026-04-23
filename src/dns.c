@@ -144,35 +144,6 @@ static void tcpdns_master_epcb_events(struct epcb_ops *epcb, unsigned events)
     master->userev(master->userp, events);
 }
 
-/* impl for struct sk_ops :: connect
-   just copy the address of nameserver, actual connecting is delayed until any
-   queries started.
-*/
-static int tcpdns_connect(struct sk_ops *conn, const char *addr, uint16_t port)
-{
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-
-    if (strlen(addr) >= 128)
-        return -1;
-
-    master->addr = strdup(addr);
-    master->port = port;
-
-    if (master->evfd == -1) {
-        master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
-        if (master->evfd  == -1) {
-            perror("eventfd()");
-            abort();
-        }
-    }
-
-    master->events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(master->loop, EPOLL_CTL_ADD, master->evfd, master->events,
-                   &master->evfdepcb);
-
-    return 0;
-}
-
 /* empty impl for struct sk_ops :: shutdown */
 static int tcpdns_shutdown(struct sk_ops *conn, int how, int rst)
 {
@@ -224,15 +195,16 @@ static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
 
     if (conf->proxytype == PROXY_SOCKS5)
         worker->proxy =
-            socks_tcp_create(master->loop, &tcpdns_worker_handle_event, worker);
+            socks_tcp_create(master->loop, &tcpdns_worker_handle_event, worker,
+                             master->addr, master->port);
     else if (conf->proxytype == PROXY_HTTP)
         worker->proxy =
-            http_tcp_create(master->loop, &tcpdns_worker_handle_event, worker);
+            http_tcp_create(master->loop, &tcpdns_worker_handle_event, worker,
+                            master->addr, master->port);
     else
         worker->proxy = direct_tcp_create(master->loop,
-                                          &tcpdns_worker_handle_event, worker);
-
-    worker->proxy->connect(worker->proxy, master->addr, master->port);
+                                          &tcpdns_worker_handle_event, worker,
+                                          master->addr, master->port);
 
     /* insert to front of worker list */
     worker->prev = NULL;
@@ -322,7 +294,7 @@ static void tcpdns_put(struct sk_ops *conn)
    TCP nameserver */
 struct sk_ops *tcpdns_create(struct loopctx *loop,
                              void (*userev)(void *userp, unsigned int event),
-                             void *userp)
+                             void *userp, const char *addr, uint16_t port)
 {
     struct conn_tcpdns *master;
 
@@ -333,7 +305,6 @@ struct sk_ops *tcpdns_create(struct loopctx *loop,
         abort();
     }
 
-    master->ops.connect = &tcpdns_connect;
     master->ops.shutdown = &tcpdns_shutdown;
     master->ops.evctl = &tcpdns_evctl;
     master->ops.send = &tcpdns_send;
@@ -347,6 +318,27 @@ struct sk_ops *tcpdns_create(struct loopctx *loop,
     master->userp = userp;
 
     master->loop = loop;
+
+    /* perform connect */
+    if (strlen(addr) >= 128) {
+        free(master);
+        return NULL;
+    }
+
+    master->addr = strdup(addr);
+    master->port = port;
+
+    if (master->evfd == -1) {
+        master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
+        if (master->evfd  == -1) {
+            perror("eventfd()");
+            abort();
+        }
+    }
+
+    master->events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(master->loop, EPOLL_CTL_ADD, master->evfd, master->events,
+                   &master->evfdepcb);
 
     master->events = 0;
     master->evfd = -1;

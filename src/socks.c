@@ -555,46 +555,6 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
-/* impl for struct sk_ops :: connect
-   the argument addr and port is proxied connection, not proxy server
-*/
-static int socks_connect(struct sk_ops *conn, const char *addr, uint16_t port)
-{
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
-    struct nspconf *conf = current_nspconf();
-    uint16_t proxy_port;
-
-    loglv(3, "socks_connect: connecting %s:%u/%s",
-             addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
-
-    if (strlen(addr) >= 128)
-        return -1;
-
-    /* connect to proxy server,
-       save arguments addr and port, there are required in handshake */
-    proxy_port = (uint16_t)atoi(conf->proxyport);
-    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0)
-        return -1;
-
-    if (self->type == UDP_FORWARD) {
-        /* it's no need to handshake in udp, start forward packet now */
-        self->phase = PHASE_FORWARDING;
-        loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
-        self->comm.events = EPOLLOUT | EPOLLIN;
-        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
-                       self->comm.events, &self->comm.epcb);
-    } else {
-        self->phase = PHASE_SEND_METHOD;
-        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
-                       &self->comm.epcb);
-    }
-
-    self->addr = strdup(addr);
-    self->port = port;
-
-    return 0;
-}
-
 /* impl for struct sk_ops :: shutdown */
 static int socks_shutdown(struct sk_ops *conn, int how, int rst)
 {
@@ -720,9 +680,12 @@ static void socks_put(struct sk_ops *conn)
 
 /* used for internal only */
 static struct conn_socks *
-socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
+socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
+                  const char *addr, uint16_t port)
 {
     struct conn_socks *self;
+    struct nspconf *conf = current_nspconf();
+    uint16_t proxy_port;
     int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM ;
 
     loglv(3, "socks_create_impl: creating a new struct conn_socks");
@@ -737,7 +700,6 @@ socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
     self->userp = userp;
     self->type = type;
 
-    self->ops.connect = &socks_connect;
     self->ops.shutdown = &socks_shutdown;
     self->ops.evctl = &socks_evctl;
     self->ops.send = &socks_send;
@@ -750,6 +712,38 @@ socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
     self->comm.stype = socktype;
     self->comm.sfd = -1;
 
+    /* perform connect */
+    loglv(3, "socks_create_impl: connecting %s:%u/%s",
+             addr, (unsigned)port, self->type == TCP_FORWARD ? "tcp" : "udp");
+
+    if (strlen(addr) >= 128) {
+        free(self);
+        return NULL;
+    }
+
+    /* connect to proxy server */
+    proxy_port = (uint16_t)atoi(conf->proxyport);
+    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0) {
+        free(self);
+        return NULL;
+    }
+
+    if (self->type == UDP_FORWARD) {
+        /* it's no need to handshake in udp, start forward packet now */
+        self->phase = PHASE_FORWARDING;
+        loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
+        self->comm.events = EPOLLOUT | EPOLLIN;
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
+                       self->comm.events, &self->comm.epcb);
+    } else {
+        self->phase = PHASE_SEND_METHOD;
+        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
+                       &self->comm.epcb);
+    }
+
+    self->addr = strdup(addr);
+    self->port = port;
+
     return self;
 }
 
@@ -757,9 +751,9 @@ socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
    this connection is proxied via socks server */
 struct sk_ops *socks_tcp_create(struct loopctx *loop,
                                 void (*userev)(void *userp, unsigned int event),
-                                void *userp)
+                                void *userp, const char *addr, uint16_t port)
 {
-    struct conn_socks *self = socks_create_impl(loop, userev, userp, TCP_FORWARD);
+    struct conn_socks *self = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
     return &self->ops;
 }
 
@@ -767,8 +761,8 @@ struct sk_ops *socks_tcp_create(struct loopctx *loop,
    this connection is proxied via socks server */
 struct sk_ops *socks_udp_create(struct loopctx *loop,
                                 void (*userev)(void *userp, unsigned int event),
-                                void *userp)
+                                void *userp, const char *addr, uint16_t port)
 {
-    struct conn_socks *self = socks_create_impl(loop, userev, userp, UDP_FORWARD);
+    struct conn_socks *self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
     return &self->ops;
 }

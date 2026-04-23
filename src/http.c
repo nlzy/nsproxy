@@ -260,42 +260,6 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
-/* impl for struct sk_ops :: connect
-   the argument addr and port is proxied connection, not proxy server
-*/
-static int http_connect(struct sk_ops *conn, const char *addr, uint16_t port)
-{
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
-    struct nspconf *conf = current_nspconf();
-    uint16_t proxy_port;
-
-    loglv(3, "http_connect: connecting %s:%u/tcp", addr, (unsigned)port);
-
-    if (strlen(addr) >= 128)
-        return -1;
-
-    /* connect to proxy server,
-       save arguments addr and port, there are required in handshake */
-    proxy_port = (uint16_t)atoi(conf->proxyport);
-    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0)
-        return -1;
-
-    /* build auth header if credentials provided */
-    if (conf->proxyuser[0] != '\0') {
-        self->auth_header = build_auth_header(conf->proxyuser, conf->proxypass);
-    }
-
-    /* good, start handshake */
-    self->phase = PHASE_SEND_REQUEST;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
-                   &self->comm.epcb);
-
-    self->addr = strdup(addr);
-    self->port = port;
-
-    return 0;
-}
-
 /* impl for struct sk_ops :: shutdown */
 static int http_shutdown(struct sk_ops *conn, int how, int rst)
 {
@@ -363,9 +327,11 @@ static void http_put(struct sk_ops *conn)
    this connection is proxied via http proxy server */
 struct sk_ops *http_tcp_create(struct loopctx *loop,
                                void (*userev)(void *userp, unsigned int event),
-                               void *userp)
+                               void *userp, const char *addr, uint16_t port)
 {
     struct conn_http *self;
+    struct nspconf *conf = current_nspconf();
+    uint16_t proxy_port;
 
     loglv(3, "http_tcp_create: creating a new struct conn_http");
 
@@ -378,7 +344,6 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     self->userev = userev;
     self->userp = userp;
 
-    self->ops.connect = &http_connect;
     self->ops.shutdown = &http_shutdown;
     self->ops.evctl = &http_evctl;
     self->ops.send = &http_send;
@@ -390,6 +355,34 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     self->comm.loop = loop;
     self->comm.stype = SOCK_STREAM;
     self->comm.sfd = -1;
+
+    /* perform connect */
+    loglv(3, "http_tcp_create: connecting %s:%u/tcp", addr, (unsigned)port);
+
+    if (strlen(addr) >= 128) {
+        free(self);
+        return NULL;
+    }
+
+    /* connect to proxy server */
+    proxy_port = (uint16_t)atoi(conf->proxyport);
+    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0) {
+        free(self);
+        return NULL;
+    }
+
+    /* build auth header if credentials provided */
+    if (conf->proxyuser[0] != '\0') {
+        self->auth_header = build_auth_header(conf->proxyuser, conf->proxypass);
+    }
+
+    /* good, start handshake */
+    self->phase = PHASE_SEND_REQUEST;
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
+                   &self->comm.epcb);
+
+    self->addr = strdup(addr);
+    self->port = port;
 
     return &self->ops;
 }

@@ -4,4 +4,4 @@
 
 struct sk_ops *tcpdns_create(struct loopctx *loop,
                              void (*userev)(void *userp, unsigned int event),
-                             void *userp);
+                             void *userp, const char *addr, uint16_t port);

@@ -26,20 +26,6 @@ static void direct_epcb_events(struct epcb_ops *epcb, unsigned int events)
     self->userev(self->userp, events);
 }
 
-/* impl for struct sk_ops :: connect */
-static int direct_connect(struct sk_ops *conn, const char *addr, uint16_t port)
-{
-    struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-
-    skcomm_common_connect(&self->comm, addr, port);
-
-    self->comm.events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
-                   self->comm.events, &self->comm.epcb);
-
-    return 0;
-}
-
 /* impl for struct sk_ops :: shutdown */
 static int direct_shutdown(struct sk_ops *conn, int how, int rst)
 {
@@ -87,7 +73,8 @@ static void direct_put(struct sk_ops *conn)
 
 /* used for internal only */
 static struct conn_direct *
-direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
+direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
+                   const char *addr, uint16_t port)
 {
     struct conn_direct *self;
 
@@ -102,7 +89,6 @@ direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
     self->userev = userev;
     self->userp = userp;
 
-    self->ops.connect = &direct_connect;
     self->ops.shutdown = &direct_shutdown;
     self->ops.evctl = &direct_evctl;
     self->ops.send = &direct_send;
@@ -115,6 +101,13 @@ direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
     self->comm.stype = type;
     self->comm.sfd = -1;
 
+    /* perform connect */
+    skcomm_common_connect(&self->comm, addr, port);
+
+    self->comm.events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
+                   self->comm.events, &self->comm.epcb);
+
     return self;
 }
 
@@ -122,10 +115,11 @@ direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type)
    create a tcp connection that will connect directly via local network */
 struct sk_ops *
 direct_tcp_create(struct loopctx *loop,
-                  void (*userev)(void *userp, unsigned int event), void *userp)
+                  void (*userev)(void *userp, unsigned int event), void *userp,
+                  const char *addr, uint16_t port)
 {
     struct conn_direct *self =
-        direct_create_impl(loop, userev, userp, SOCK_STREAM);
+        direct_create_impl(loop, userev, userp, SOCK_STREAM, addr, port);
     return &self->ops;
 }
 
@@ -133,9 +127,10 @@ direct_tcp_create(struct loopctx *loop,
    create a udp connection that will connect directly via local network */
 struct sk_ops *
 direct_udp_create(struct loopctx *loop,
-                  void (*userev)(void *userp, unsigned int event), void *userp)
+                  void (*userev)(void *userp, unsigned int event), void *userp,
+                  const char *addr, uint16_t port)
 {
     struct conn_direct *self =
-        direct_create_impl(loop, userev, userp, SOCK_DGRAM);
+        direct_create_impl(loop, userev, userp, SOCK_DGRAM, addr, port);
     return &self->ops;
 }
