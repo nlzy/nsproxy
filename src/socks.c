@@ -722,8 +722,8 @@ socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
     }
 
     /* connect to proxy server */
-    proxy_port = (uint16_t)atoi(conf->proxyport);
-    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0) {
+    if (skcomm_common_connect(&self->comm,
+                              conf->proxysrv, conf->proxyport) != 0) {
         free(self);
         return NULL;
     }

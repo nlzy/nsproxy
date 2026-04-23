@@ -669,15 +669,13 @@ int main(int argc, char *argv[])
         if (result->ai_family == AF_INET) {
             struct sockaddr_in *sa4 = (struct sockaddr_in *)result->ai_addr;
             inet_ntop(result->ai_family, &sa4->sin_addr, conf.proxysrv,
-                    sizeof(conf.proxysrv));
-            snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
-                    (unsigned int)be16toh(sa4->sin_port));
+                      sizeof(conf.proxysrv));
+            conf.proxyport = be16toh(sa4->sin_port);
         } else if (result->ai_family == AF_INET6) {
             struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)result->ai_addr;
             inet_ntop(result->ai_family, &sa6->sin6_addr, conf.proxysrv,
-                    sizeof(conf.proxysrv));
-            snprintf(conf.proxyport, sizeof(conf.proxyport), "%u",
-                    (unsigned int)be16toh(sa6->sin6_port));
+                      sizeof(conf.proxysrv));
+            conf.proxyport = be16toh(sa6->sin6_port);
         } else {
             fprintf(stderr, "nsproxy: unsupported proxy server address.\n");
             exit(EXIT_FAILURE);
@@ -707,36 +705,27 @@ int main(int argc, char *argv[])
 
     /* command line config initialized, print it */
     if (nsproxy_verbose_level__ >= 0) {
-        char const *ptype, *pserv, *pport, *dnstype, *dnsserv;
-        char const pcolon = conf.proxytype == PROXY_DIRECT ? ' ' : ':';
+        char dispserv[256] = { 0 };
+        char dispdns[256] = { 0 };
 
-        if (conf.proxytype == PROXY_SOCKS5) {
-            ptype = "socks5://";
-            pserv = conf.proxysrv;
-            pport = conf.proxyport;
-        } else if (conf.proxytype == PROXY_HTTP) {
-            ptype = "http://";
-            pserv = conf.proxysrv;
-            pport = conf.proxyport;
-        } else {
-            ptype = "(direct)";
-            pserv = "";
-            pport = "";
-        }
+        if (conf.proxytype == PROXY_SOCKS5)
+            snprintf(dispserv, sizeof(dispserv), "socks5://%s:%u",
+                     conf.proxysrv, (unsigned)conf.proxyport);
+        else if (conf.proxytype == PROXY_HTTP)
+            snprintf(dispserv, sizeof(dispserv), "http://%s:%u",
+                     conf.proxysrv, (unsigned)conf.proxyport);
+        else
+            strlcpy(dispserv, "(direct)", sizeof(dispserv));
 
-        if (conf.dnstype == DNS_REDIR_OFF) {
-            dnstype = "off";
-            dnsserv = "";
-        } else if (conf.dnstype == DNS_REDIR_TCP) {
-            dnstype = "tcp://";
-            dnsserv = conf.dnssrv;
-        } else {
-            dnstype = "udp://";
-            dnsserv = conf.dnssrv;
-        }
+        if (conf.dnstype == DNS_REDIR_TCP)
+            snprintf(dispdns, sizeof(dispdns), "tcp://%s", conf.dnssrv);
+        else if (conf.dnstype == DNS_REDIR_UDP)
+            snprintf(dispdns, sizeof(dispdns), "udp://%s", conf.dnssrv);
+        else
+            strlcpy(dispserv, "(off)", sizeof(dispserv));
 
-        loglv(0, "Proxy Server:     %s%s%c%s", ptype, pserv, pcolon, pport);
-        loglv(0, "DNS Redirection:  %s%s", dnstype, dnsserv);
+        loglv(0, "Proxy Server:     %s", dispserv);
+        loglv(0, "DNS Redirection:  %s", dispdns);
         loglv(0, "Verbose:          %s",
               nsproxy_verbose_level__ > 0 ? "yes" : "no");
     }

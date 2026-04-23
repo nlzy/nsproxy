@@ -54,7 +54,7 @@ enum {
 
 struct nspconf {
     char proxysrv[64];
-    char proxyport[8];
+    uint16_t proxyport;
     uint8_t proxytype;
     char dnssrv[128];
     uint8_t dnstype;

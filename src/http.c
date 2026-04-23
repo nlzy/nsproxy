@@ -331,7 +331,6 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
 {
     struct conn_http *self;
     struct nspconf *conf = current_nspconf();
-    uint16_t proxy_port;
 
     loglv(3, "http_tcp_create: creating a new struct conn_http");
 
@@ -365,8 +364,8 @@ struct sk_ops *http_tcp_create(struct loopctx *loop,
     }
 
     /* connect to proxy server */
-    proxy_port = (uint16_t)atoi(conf->proxyport);
-    if (skcomm_common_connect(&self->comm, conf->proxysrv, proxy_port) != 0) {
+    if (skcomm_common_connect(&self->comm,
+                              conf->proxysrv, conf->proxyport) != 0) {
         free(self);
         return NULL;
     }
