@@ -157,9 +157,12 @@ static int bringup_tun(void)
     /* create tun0 */
     if ((tunfd = open("/dev/net/tun", O_RDWR | O_CLOEXEC)) == -1) {
         if (errno == ENOENT) {
-            fprintf(stderr, "nsproxy: open \"/dev/net/tun\" failed.\n"
-                            "nsproxy: This kernel may not have TUN device "
-                            "support enabled.\n");
+            fprintf(stderr,
+                    "nsproxy: open \"/dev/net/tun\" failed.\n"
+                    "hints: If you are using OpenWrt, install the package "
+                    "'kmod-tun'.\n"
+                    "       If you are using LXC, add device '/dev/tun' "
+                    "to container.\n");
             exit(EXIT_FAILURE);
         } else {
             perror("open(/dev/net/tun)");
