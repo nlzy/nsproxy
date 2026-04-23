@@ -42,8 +42,9 @@ struct sk_ops {
        call to shutdown before put is not required
      */
     void (*put)(struct sk_ops *conn);
-
-    /* epoll event callback function
-       called when an epoll event occurs on this connection
-     */
 };
+
+/* events callback function
+   called when events occurs on this connection
+ */
+typedef void (userev_fn_t)(void *userp, unsigned int events);

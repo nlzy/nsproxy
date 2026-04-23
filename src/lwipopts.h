@@ -71,15 +71,19 @@
 #define SYS_ARCH_UNPROTECT(lev)    (void)0
 
 #define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1
-#define LWIP_PLATFORM_ASSERT(x) do {fprintf(stderr, "Assertion \"%s\" failed at line %d in %s\n", \
-                                     x, __LINE__, __FILE_NAME__); abort();} while(0)
 #define lwip_htons(x)                  htobe16(x)
 #define lwip_htonl(x)                  htobe32(x)
 #define lwip_strnstr(buffer, token, n) strnstr(buffer, token, n)
 #define lwip_stricmp(str1, str2)       stricmp(str1, str2)
 #define lwip_strnicmp(str1, str2, len) strnicmp(str1, str2, len)
-#define lwip_itoa(result, bufsize, number) \
-    snprintf(result, bufsize, "%d", number)
+#define lwip_itoa(buf, sz, num)        snprintf(buf, sz, "%d", num)
+
+#define LWIP_PLATFORM_ASSERT(x)                                       \
+    do {                                                              \
+        fprintf(stderr, "Assertion \"%s\" failed at line %d in %s\n", \
+                        x, __LINE__, __FILE_NAME__);                  \
+        abort();                                                      \
+    } while(0)
 
 #define NSPROXY_MODIFIED 1
 

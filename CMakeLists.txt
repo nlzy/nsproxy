@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(nsproxy C)
 
-set(CMAKE_C_STANDARD 90)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS ON)
 
 add_executable(nsproxy
     lwip/inet_chksum.c
@@ -47,6 +48,8 @@ target_compile_definitions(nsproxy PRIVATE
 target_compile_options(nsproxy PRIVATE
     -Wall
     -Wextra
+    -Wpedantic
+    -Wvla
     -Wno-unused-parameter
     -Wno-unused-variable
     -Wno-array-bounds # caused by tricky hacks in lwIP

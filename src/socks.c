@@ -55,7 +55,7 @@ enum {
 struct conn_socks {
     struct sk_ops ops;
     struct sk_comm comm;
-    void (*userev)(void *userp, unsigned int event);
+    userev_fn_t *userev;
     void *userp;
     char *addr; /* for proxied connection, not proxy server */
     uint16_t port;
@@ -680,8 +680,8 @@ static void socks_put(struct sk_ops *conn)
 
 /* used for internal only */
 static struct conn_socks *
-socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
-                  const char *addr, uint16_t port)
+socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
+                  int type, const char *addr, uint16_t port)
 {
     struct conn_socks *self;
     struct nspconf *conf = current_nspconf();
@@ -749,8 +749,7 @@ socks_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
 
 /* create a tcp connection
    this connection is proxied via socks server */
-struct sk_ops *socks_tcp_create(struct loopctx *loop,
-                                void (*userev)(void *userp, unsigned int event),
+struct sk_ops *socks_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                                 void *userp, const char *addr, uint16_t port)
 {
     struct conn_socks *self = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
@@ -759,8 +758,7 @@ struct sk_ops *socks_tcp_create(struct loopctx *loop,
 
 /* create a udp connection
    this connection is proxied via socks server */
-struct sk_ops *socks_udp_create(struct loopctx *loop,
-                                void (*userev)(void *userp, unsigned int event),
+struct sk_ops *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
                                 void *userp, const char *addr, uint16_t port)
 {
     struct conn_socks *self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);

@@ -21,7 +21,7 @@ struct conn_tcpdns {
 
     int refcnt;
 
-    void (*userev)(void *userp, unsigned int event);
+    userev_fn_t *userev;
     void *userp;
 
     char *addr;
@@ -134,7 +134,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     return;
-};
+}
 
 /* eventfd callback, triggered when worker has data */
 static void tcpdns_master_epcb_events(struct epcb_ops *epcb, unsigned events)
@@ -292,8 +292,7 @@ static void tcpdns_put(struct sk_ops *conn)
 /* create a pseudo udp connection
    used for handle DNS request represented in datagrams and forward to a
    TCP nameserver */
-struct sk_ops *tcpdns_create(struct loopctx *loop,
-                             void (*userev)(void *userp, unsigned int event),
+struct sk_ops *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
                              void *userp, const char *addr, uint16_t port)
 {
     struct conn_tcpdns *master;

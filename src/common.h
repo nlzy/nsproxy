@@ -12,9 +12,9 @@
 #include <string.h>
 
 #define container_of(ptr, type, member)                    \
-    ({                                                     \
-        const typeof(((type *)0)->member) *__mptr = (ptr); \
-        (type *)((char *)__mptr - offsetof(type, member)); \
+    __extension__ ({                                       \
+        const typeof(((type *)0)->member) *mptr__ = (ptr); \
+        (type *)((char *)mptr__ - offsetof(type, member)); \
     })
 
 #define arraysizeof(array) (sizeof(array) / sizeof(*(array)))

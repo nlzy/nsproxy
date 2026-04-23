@@ -13,7 +13,7 @@
 struct conn_direct {
     struct sk_ops ops;
     struct sk_comm comm;
-    void (*userev)(void *userp, unsigned int event);
+    userev_fn_t *userev;
     void *userp;
     int refcnt;
 };
@@ -37,7 +37,7 @@ static int direct_shutdown(struct sk_ops *conn, int how, int rst)
 static void direct_evctl(struct sk_ops *conn, unsigned int event, int enable)
 {
     struct conn_direct *self = container_of(conn, struct conn_direct, ops);
-    return skcomm_common_evctl(&self->comm, event, enable);
+    skcomm_common_evctl(&self->comm, event, enable);
 }
 
 /* impl for struct sk_ops :: send */
@@ -73,8 +73,8 @@ static void direct_put(struct sk_ops *conn)
 
 /* used for internal only */
 static struct conn_direct *
-direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
-                   const char *addr, uint16_t port)
+direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
+                   int type, const char *addr, uint16_t port)
 {
     struct conn_direct *self;
 
@@ -114,8 +114,7 @@ direct_create_impl(struct loopctx *loop, void *userev, void *userp, int type,
 /* public function,
    create a tcp connection that will connect directly via local network */
 struct sk_ops *
-direct_tcp_create(struct loopctx *loop,
-                  void (*userev)(void *userp, unsigned int event), void *userp,
+direct_tcp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
                   const char *addr, uint16_t port)
 {
     struct conn_direct *self =
@@ -126,8 +125,7 @@ direct_tcp_create(struct loopctx *loop,
 /* public function,
    create a udp connection that will connect directly via local network */
 struct sk_ops *
-direct_udp_create(struct loopctx *loop,
-                  void (*userev)(void *userp, unsigned int event), void *userp,
+direct_udp_create(struct loopctx *loop, userev_fn_t *userev, void *userp,
                   const char *addr, uint16_t port)
 {
     struct conn_direct *self =

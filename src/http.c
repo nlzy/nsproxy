@@ -95,7 +95,7 @@ static char *build_auth_header(const char *user, const char *pass)
 struct conn_http {
     struct sk_ops ops;
     struct sk_comm comm;
-    void (*userev)(void *userp, unsigned int event);
+    userev_fn_t *userev;
     void *userp;
     char *addr; /* for proxied connection, not proxy server */
     uint16_t port;
@@ -325,8 +325,7 @@ static void http_put(struct sk_ops *conn)
 
 /* create a tcp connection
    this connection is proxied via http proxy server */
-struct sk_ops *http_tcp_create(struct loopctx *loop,
-                               void (*userev)(void *userp, unsigned int event),
+struct sk_ops *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                                void *userp, const char *addr, uint16_t port)
 {
     struct conn_http *self;

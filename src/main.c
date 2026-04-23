@@ -607,12 +607,14 @@ int main(int argc, char *argv[])
         case 'a': {
             char *sep = strchr(optarg, ':');
             if (!sep) {
-                fprintf(stderr, "nsproxy: invalid auth format, expected user:password\n");
+                fprintf(stderr, "nsproxy: invalid auth format, "
+                                "expected <user>:<password>\n");
                 exit(EXIT_FAILURE);
             }
             size_t user_len = sep - optarg;
             size_t pass_len = strlen(sep + 1);
-            if (user_len >= sizeof(conf.proxyuser) || pass_len >= sizeof(conf.proxypass)) {
+            if (user_len >= sizeof(conf.proxyuser)
+                || pass_len >= sizeof(conf.proxypass)) {
                 fprintf(stderr, "nsproxy: username or password too long\n");
                 exit(EXIT_FAILURE);
             }

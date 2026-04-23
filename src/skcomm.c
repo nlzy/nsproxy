@@ -28,15 +28,15 @@ int skcomm_common_connect(struct sk_comm *comm, const char *addr,
     if (getaddrinfo(addr, strport, &hints, &result) != 0)
         return -1;
 
-    if ((comm->sfd = socket(result->ai_family,
-                            comm->stype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) == -1) {
+    comm->sfd = socket(result->ai_family,
+                       comm->stype | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    if (comm->sfd == -1) {
         perror("socket()");
         abort();
     }
 
     if (comm->stype == SOCK_STREAM) {
-        int const enable = 1;
-        if (setsockopt(comm->sfd, IPPROTO_TCP, TCP_NODELAY, &enable,
+        if (setsockopt(comm->sfd, IPPROTO_TCP, TCP_NODELAY, &(const int){ 1 },
                        sizeof(int)) == -1) {
             perror("setsockopt()");
             abort();
