@@ -23,74 +23,45 @@ static const char *phasestr[] = {
     [PHASE_FORWARDING] = "PHASE_FORWARDING",
 };
 
+/* Base64 output length (include NUL terminate) */
+#define BASE64_OUTLEN(inlen) (((inlen) + 2) / 3 * 4 + 1)
+
 /* Base64 encoding table */
 static const char base64_chars[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /* Base64 encode function
-   Returns the number of bytes written to output, or -1 on error
+   Returns the number of bytes written to output (include NUL terminate)
 */
-static int base64_encode(const char *input, size_t len,
-                         char *output, size_t outlen)
+static size_t base64_encode(char *output, size_t outlen,
+                            const void *binary, size_t inlen)
 {
     size_t i, j;
-    size_t n, k;
-    unsigned char a3[3];
-    unsigned char a4[4];
 
-    if (outlen < ((len + 2) / 3) * 4 + 1)
-        return -1;
+    if (inlen > (SIZE_MAX - 1) / 4 * 3 || outlen < ((inlen + 2) / 3) * 4 + 1)
+        return 0;
 
-    for (i = 0, j = 0; i < len;) {
-        n = 0;
-        for (k = 0; k < 3 && i < len; k++) {
-            a3[k] = input[i++];
-            n++;
-        }
+    for (i = 0, j = 0; i < inlen;) {
+        unsigned char a3[3] = { 0 };
+        unsigned char a4[4];
+        size_t k;
+
+        for (k = 0; k < 3 && i < inlen; k++)
+            a3[k] = ((unsigned char *)binary)[i++];
 
         a4[0] = (a3[0] & 0xfc) >> 2;
-        a4[1] = ((a3[0] & 0x03) << 4) | ((n > 1 ? a3[1] : 0) >> 4);
-        a4[2] = n > 1 ? (((a3[1] & 0x0f) << 2) | ((n > 2 ? a3[2] : 0) >> 6)) : 0;
-        a4[3] = n > 2 ? (a3[2] & 0x3f) : 0;
+        a4[1] = ((a3[0] & 0x03) << 4) | (a3[1] >> 4);
+        a4[2] = ((a3[1] & 0x0f) << 2) | (a3[2] >> 6);
+        a4[3] = a3[2] & 0x3f;
 
         output[j++] = base64_chars[a4[0]];
         output[j++] = base64_chars[a4[1]];
-        output[j++] = n > 1 ? base64_chars[a4[2]] : '=';
-        output[j++] = n > 2 ? base64_chars[a4[3]] : '=';
+        output[j++] = k > 1 ? base64_chars[a4[2]] : '=';
+        output[j++] = k > 2 ? base64_chars[a4[3]] : '=';
     }
 
-    output[j] = '\0';
-    return (int)j;
-}
-
-/* Build Proxy-Authorization header with Basic auth
-   Returns allocated string (must be freed by caller), or NULL on error
-*/
-static char *build_auth_header(const char *user, const char *pass)
-{
-    char credentials[192];
-    char b64[256];
-    char *header;
-    size_t header_len;
-    int cred_len, b64_len;
-
-    cred_len = snprintf(credentials, sizeof(credentials), "%s:%s", user, pass);
-    if (cred_len < 0 || (size_t)cred_len >= sizeof(credentials))
-        return NULL;
-
-    b64_len = base64_encode(credentials, cred_len, b64, sizeof(b64));
-    if (b64_len < 0)
-        return NULL;
-
-    header_len = strlen("Proxy-Authorization: Basic \r\n") + b64_len + 1;
-    header = malloc(header_len);
-    if (!header) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
-
-    snprintf(header, header_len, "Proxy-Authorization: Basic %s\r\n", b64);
-    return header;
+    output[j++] = '\0';
+    return j;
 }
 
 struct proxy_http {
@@ -104,7 +75,6 @@ struct proxy_http {
     /* for handshake only */
     char buffer[512];
     ssize_t nbuffer;
-    char *auth_header; /* Proxy-Authorization header (malloc'd) */
     int refcnt;
 };
 
@@ -206,14 +176,27 @@ static void http_handshake_output(struct proxy_http *self)
 
     /* it's first called to this function, assembly request */
     if (!self->nbuffer) {
-        if (self->auth_header) {
+        if (strlen(current_nspconf()->proxyuser)) {
+            char credentials[AUTH_MAXLEN * 2 + 1 + 1];
+            char base64[BASE64_OUTLEN(AUTH_MAXLEN * 2 + 1)];
+            snprintf(credentials, sizeof(credentials), "%s:%s",
+                     current_nspconf()->proxyuser, current_nspconf()->proxypass);
+            base64_encode(base64, sizeof(base64), credentials, 
+                          strlen(credentials));
             self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
-                                     "CONNECT %s:%u HTTP/1.1\r\n%s\r\n",
+                                     "CONNECT %s:%u HTTP/1.1"        "\r\n"
+                                     "Host: %s:%u"                   "\r\n"
+                                     "Proxy-Authorization: Basic %s" "\r\n"
+                                     "\r\n",
                                      self->addr, (unsigned int)self->port,
-                                     self->auth_header);
+                                     self->addr, (unsigned int)self->port,
+                                     base64);
         } else {
             self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
-                                     "CONNECT %s:%u HTTP/1.1\r\n\r\n",
+                                     "CONNECT %s:%u HTTP/1.1" "\r\n"
+                                     "Host: %s:%u"            "\r\n"
+                                     "\r\n",
+                                     self->addr, (unsigned int)self->port,
                                      self->addr, (unsigned int)self->port);
         }
     }
@@ -319,7 +302,6 @@ static void http_put(struct proxy *proxy)
     if (--self->refcnt == 0) {
         skcomm_common_close(&self->comm);
         free(self->addr);
-        free(self->auth_header);
         free(self);
     }
 }
@@ -372,11 +354,6 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                               conf->proxysrv, conf->proxyport) != 0) {
         free(self);
         return NULL;
-    }
-
-    /* build auth header if credentials provided */
-    if (conf->proxyuser[0] != '\0') {
-        self->auth_header = build_auth_header(conf->proxyuser, conf->proxypass);
     }
 
     /* good, start handshake */
