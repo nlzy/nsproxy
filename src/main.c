@@ -520,14 +520,16 @@ static int child(int sk, char *cmd[])
         loglv(3, "child: created net namespace");
     }
 
+    if (unshare_mount() == 0) {
+        loglv(3, "child: created mount namespace");
 
-    if (conf->dnstype != DNS_REDIR_OFF) {
-        if (unshare_mount() == 0) {
-            loglv(3, "child: created mount namespace");
+        /* WORKAROUND: Bad owner or permissions on /etc/ssh/ssh_config.d */
+        mount("tmpfs", "/etc/ssh/ssh_config.d", "tmpfs", 0, NULL);
+
+        /* ensure DNS redirection work */
+        if (conf->dnstype != DNS_REDIR_OFF) {
             configure_resolv_conf();
             configure_nsswitch_conf();
-        } else {
-            loglv(3, "child: failed to create mount namespace");
         }
     }
 
