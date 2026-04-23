@@ -574,6 +574,7 @@ int main(int argc, char *argv[])
     const char *serv = NULL;
     const char *port = NULL;
     const char *dns = NULL;
+    char *auth = NULL;
     int ishttp = 0, isdirect = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
@@ -604,26 +605,9 @@ int main(int argc, char *argv[])
         case 'd':
             dns = optarg;
             break;
-        case 'a': {
-            char *sep = strchr(optarg, ':');
-            if (!sep) {
-                fprintf(stderr, "nsproxy: invalid auth format, "
-                                "expected <user>:<password>\n");
-                exit(EXIT_FAILURE);
-            }
-            size_t user_len = sep - optarg;
-            size_t pass_len = strlen(sep + 1);
-            if (user_len >= sizeof(conf.proxyuser)
-                || pass_len >= sizeof(conf.proxypass)) {
-                fprintf(stderr, "nsproxy: username or password too long\n");
-                exit(EXIT_FAILURE);
-            }
-            memcpy(conf.proxyuser, optarg, user_len);
-            conf.proxyuser[user_len] = '\0';
-            memcpy(conf.proxypass, sep + 1, pass_len);
-            conf.proxypass[pass_len] = '\0';
+        case 'a':
+            auth = optarg;
             break;
-        }
         case 'v':
             nsproxy_verbose_level__++;
             break;
@@ -648,6 +632,29 @@ int main(int argc, char *argv[])
 
     if (dns == NULL)
         dns = "tcp://1.1.1.1";
+
+    if (auth) {
+        size_t ulen, plen;
+        char *sep;
+
+        if ((sep = strchr(auth, ':')) == NULL) {
+            fprintf(stderr, "nsproxy: invalid auth argument, expected "
+                            "<user>:<password>\n");
+            exit(EXIT_FAILURE);
+        }
+        ulen = sep - auth;
+        plen = strlen(sep + 1);
+        if (ulen >= sizeof(conf.proxyuser) || plen >= sizeof(conf.proxypass)) {
+            fprintf(stderr, "nsproxy: username or password too long\n");
+            exit(EXIT_FAILURE);
+        }
+
+        snprintf(conf.proxyuser, sizeof(conf.proxyuser), "%.*s", (int)ulen, auth);
+        snprintf(conf.proxypass, sizeof(conf.proxypass), "%s", sep + 1);
+
+        /* wipe plain text password that display in process name */
+        memset(auth, '*', ulen + 1 + plen);
+    }
 
     if (ishttp && isdirect) {
         fprintf(stderr, "nsproxy: can't use -H and -D together.\n");

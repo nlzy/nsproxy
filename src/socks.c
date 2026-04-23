@@ -66,7 +66,7 @@ struct proxy_socks {
     int type;
     int phase;
     /* for handshake only */
-    char buffer[512];
+    char buffer[4096];
     size_t nbuffer;
     int refcnt;
 };
