@@ -52,8 +52,8 @@ enum {
     UDP_ASSOCIATE,   /* UDP association control connection */
 };
 
-struct conn_socks {
-    struct sk_ops ops;
+struct proxy_socks {
+    struct proxy ops;
     struct sk_comm comm;
     userev_fn_t *userev;
     void *userp;
@@ -235,7 +235,7 @@ static ssize_t socks5_addr_get(struct socks5addr *addr, const char *buffer,
     return cur - buffer;
 }
 
-static void socks_handshake_perror(struct conn_socks *self, int err)
+static void socks_handshake_perror(struct proxy_socks *self, int err)
 {
     if (err > 0)
         loglv(0, "Proxy server reset unexpectedly during SOCKS5 handshake "
@@ -245,7 +245,7 @@ static void socks_handshake_perror(struct conn_socks *self, int err)
                  "phase [%s]", phasestr[self->phase]);
 }
 
-static void socks_handshake_output(struct conn_socks *self)
+static void socks_handshake_output(struct proxy_socks *self)
 {
     struct nspconf *conf = current_nspconf();
     ssize_t nsent;
@@ -335,7 +335,7 @@ static void socks_handshake_output(struct conn_socks *self)
                    &self->comm.epcb);
 }
 
-static void socks_handshake_input(struct conn_socks *self)
+static void socks_handshake_input(struct proxy_socks *self)
 {
     ssize_t nread;
 
@@ -535,7 +535,7 @@ static void socks_handshake_input(struct conn_socks *self)
 static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
-    struct conn_socks *self = container_of(comm, struct conn_socks, comm);
+    struct proxy_socks *self = container_of(comm, struct proxy_socks, comm);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -555,17 +555,17 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
-/* impl for struct sk_ops :: shutdown */
-static int socks_shutdown(struct sk_ops *conn, int how, int rst)
+/* impl for struct proxy :: shutdown */
+static int socks_shutdown(struct proxy *proxy, int how, int rst)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     return skcomm_common_shutdown(&self->comm, how, rst);
 }
 
-/* impl for struct sk_ops :: evctl */
-static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
+/* impl for struct proxy :: evctl */
+static void socks_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
 
     if (self->phase != PHASE_FORWARDING)
         return;
@@ -573,10 +573,10 @@ static void socks_evctl(struct sk_ops *conn, unsigned int event, int enable)
     skcomm_common_evctl(&self->comm, event, enable);
 }
 
-/* impl for struct sk_ops :: send */
-static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
+/* impl for struct proxy :: send */
+static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
@@ -619,10 +619,10 @@ static ssize_t socks_send(struct sk_ops *conn, const char *data, size_t size)
     }
 }
 
-/* impl for struct sk_ops :: recv */
-static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
+/* impl for struct proxy :: recv */
+static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     ssize_t nread;
 
     /* handshake is not finished */
@@ -660,17 +660,17 @@ static ssize_t socks_recv(struct sk_ops *conn, char *data, size_t size)
     return nread;
 }
 
-/* impl for struct sk_ops :: get */
-static void socks_get(struct sk_ops *conn)
+/* impl for struct proxy :: get */
+static void socks_get(struct proxy *proxy)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     self->refcnt++;
 }
 
-/* impl for struct sk_ops :: put */
-static void socks_put(struct sk_ops *conn)
+/* impl for struct proxy :: put */
+static void socks_put(struct proxy *proxy)
 {
-    struct conn_socks *self = container_of(conn, struct conn_socks, ops);
+    struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     if (--self->refcnt == 0) {
         skcomm_common_close(&self->comm);
         free(self->addr);
@@ -678,34 +678,38 @@ static void socks_put(struct sk_ops *conn)
     }
 }
 
+/* global vtable of proxy_socks */
+static const struct proxy_ops socks_ops = {
+    .shutdown = &socks_shutdown,
+    .evctl = &socks_evctl,
+    .send = &socks_send,
+    .recv = &socks_recv,
+    .get = &socks_get,
+    .put = &socks_put,
+};
+
 /* used for internal only */
-static struct conn_socks *
+static struct proxy_socks *
 socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
                   int type, const char *addr, uint16_t port)
 {
-    struct conn_socks *self;
+    struct proxy_socks *self;
     struct nspconf *conf = current_nspconf();
     uint16_t proxy_port;
     int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM ;
 
     loglv(3, "socks_create_impl: creating a new struct conn_socks");
 
-    if ((self = calloc(1, sizeof(struct conn_socks))) == NULL) {
+    if ((self = calloc(1, sizeof(struct proxy_socks))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
+    self->ops.ops = &socks_ops;
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
     self->type = type;
-
-    self->ops.shutdown = &socks_shutdown;
-    self->ops.evctl = &socks_evctl;
-    self->ops.send = &socks_send;
-    self->ops.recv = &socks_recv;
-    self->ops.get = &socks_get;
-    self->ops.put = &socks_put;
 
     self->comm.epcb.on_epoll_events = &socks_epcb_events;
     self->comm.loop = loop;
@@ -749,18 +753,20 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
 /* create a tcp connection
    this connection is proxied via socks server */
-struct sk_ops *socks_tcp_create(struct loopctx *loop, userev_fn_t *userev,
+struct proxy *socks_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                                 void *userp, const char *addr, uint16_t port)
 {
-    struct conn_socks *self = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
+    struct proxy_socks *self
+        = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
     return &self->ops;
 }
 
 /* create a udp connection
    this connection is proxied via socks server */
-struct sk_ops *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
+struct proxy *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
                                 void *userp, const char *addr, uint16_t port)
 {
-    struct conn_socks *self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
+    struct proxy_socks *self 
+        = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
     return &self->ops;
 }

@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "loop.h"
+#include "proxy.h"
 #include "skcomm.h"
 
 enum {
@@ -92,8 +93,8 @@ static char *build_auth_header(const char *user, const char *pass)
     return header;
 }
 
-struct conn_http {
-    struct sk_ops ops;
+struct proxy_http {
+    struct proxy ops;
     struct sk_comm comm;
     userev_fn_t *userev;
     void *userp;
@@ -107,7 +108,7 @@ struct conn_http {
     int refcnt;
 };
 
-static void http_handshake_perror(struct conn_http *self, int err)
+static void http_handshake_perror(struct proxy_http *self, int err)
 {
     if (err > 0)
         loglv(0, "Proxy server reset unexpectedly during HTTP handshake "
@@ -119,7 +120,7 @@ static void http_handshake_perror(struct conn_http *self, int err)
 
 /* epoll event callback
    used of receiving http response */
-static void http_handshake_input(struct conn_http *self)
+static void http_handshake_input(struct proxy_http *self)
 {
     ssize_t nread;
     char *crlf2;
@@ -199,7 +200,7 @@ static void http_handshake_input(struct conn_http *self)
 
 /* epoll event callback
    used of sending http request */
-static void http_handshake_output(struct conn_http *self)
+static void http_handshake_output(struct proxy_http *self)
 {
     ssize_t nsent;
 
@@ -242,7 +243,7 @@ static void http_handshake_output(struct conn_http *self)
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
-    struct conn_http *self = container_of(comm, struct conn_http, comm);
+    struct proxy_http *self = container_of(comm, struct proxy_http, comm);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -260,17 +261,17 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
-/* impl for struct sk_ops :: shutdown */
-static int http_shutdown(struct sk_ops *conn, int how, int rst)
+/* impl for struct proxy :: shutdown */
+static int http_shutdown(struct proxy *proxy, int how, int rst)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     return skcomm_common_shutdown(&self->comm, how, rst);
 }
 
-/* impl for struct sk_ops :: evctl */
-static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
+/* impl for struct proxy :: evctl */
+static void http_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
 
     if (self->phase != PHASE_FORWARDING)
         return;
@@ -278,10 +279,10 @@ static void http_evctl(struct sk_ops *conn, unsigned int event, int enable)
     skcomm_common_evctl(&self->comm, event, enable);
 }
 
-/* impl for struct sk_ops :: send */
-static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
+/* impl for struct proxy :: send */
+static ssize_t http_send(struct proxy *proxy, const char *data, size_t size)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
@@ -291,10 +292,10 @@ static ssize_t http_send(struct sk_ops *conn, const char *data, size_t size)
     return skcomm_common_send(&self->comm, data, size);
 }
 
-/* impl for struct sk_ops :: recv */
-static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
+/* impl for struct proxy :: recv */
+static ssize_t http_recv(struct proxy *proxy, char *data, size_t size)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
 
     /* handshake is not finished */
     if (self->phase != PHASE_FORWARDING) {
@@ -304,17 +305,17 @@ static ssize_t http_recv(struct sk_ops *conn, char *data, size_t size)
     return skcomm_common_recv(&self->comm, data, size);
 }
 
-/* impl for struct sk_ops :: get */
-static void http_get(struct sk_ops *conn)
+/* impl for struct proxy :: get */
+static void http_get(struct proxy *proxy)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     self->refcnt++;
 }
 
-/* impl for struct sk_ops :: put */
-static void http_put(struct sk_ops *conn)
+/* impl for struct proxy :: put */
+static void http_put(struct proxy *proxy)
 {
-    struct conn_http *self = container_of(conn, struct conn_http, ops);
+    struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     if (--self->refcnt == 0) {
         skcomm_common_close(&self->comm);
         free(self->addr);
@@ -323,31 +324,35 @@ static void http_put(struct sk_ops *conn)
     }
 }
 
+/* global vtable of proxy_http */
+static const struct proxy_ops http_ops = {
+    .shutdown = &http_shutdown,
+    .evctl = &http_evctl,
+    .send = &http_send,
+    .recv = &http_recv,
+    .get = &http_get,
+    .put = &http_put,
+};
+
 /* create a tcp connection
    this connection is proxied via http proxy server */
-struct sk_ops *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
+struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
                                void *userp, const char *addr, uint16_t port)
 {
-    struct conn_http *self;
+    struct proxy_http *self;
     struct nspconf *conf = current_nspconf();
 
     loglv(3, "http_tcp_create: creating a new struct conn_http");
 
-    if ((self = calloc(1, sizeof(struct conn_http))) == NULL) {
+    if ((self = calloc(1, sizeof(struct proxy_http))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
+    self->ops.ops = &http_ops;
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
-
-    self->ops.shutdown = &http_shutdown;
-    self->ops.evctl = &http_evctl;
-    self->ops.send = &http_send;
-    self->ops.recv = &http_recv;
-    self->ops.get = &http_get;
-    self->ops.put = &http_put;
 
     self->comm.epcb.on_epoll_events = &http_epcb_events;
     self->comm.loop = loop;

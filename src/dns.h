@@ -1,6 +1,6 @@
 #pragma once
-#include "skops.h"
+#include "proxy.h"
 #include "loop.h"
 
-struct sk_ops *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
-                             void *userp, const char *addr, uint16_t port);
+struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
+                            void *userp, const char *addr, uint16_t port);

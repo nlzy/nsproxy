@@ -12,11 +12,11 @@
 #include "loop.h"
 #include "socks.h"
 
-struct conn_tcpdns;
-struct conn_tcpdns_worker;
+struct proxy_tcpdns;
+struct tcpdns_worker;
 
-struct conn_tcpdns {
-    struct sk_ops ops;
+struct proxy_tcpdns {
+    struct proxy ops;
     struct loopctx *loop;
 
     int refcnt;
@@ -33,7 +33,7 @@ struct conn_tcpdns {
        because in DNS protocol, a single TCP connection can only handle one
        query
     */
-    struct conn_tcpdns_worker *workers;
+    struct tcpdns_worker *workers;
 
     /* receive worker done event */
     int evfd;
@@ -42,12 +42,12 @@ struct conn_tcpdns {
     unsigned int events;
 };
 
-struct conn_tcpdns_worker {
-    struct conn_tcpdns *master;
-    struct sk_ops *proxy;
+struct tcpdns_worker {
+    struct proxy_tcpdns *master;
+    struct proxy *proxy;
 
-    struct conn_tcpdns_worker *prev;
-    struct conn_tcpdns_worker *next;
+    struct tcpdns_worker *prev;
+    struct tcpdns_worker *next;
 
     char buffer[4096];
     ssize_t nbuffer;
@@ -56,16 +56,16 @@ struct conn_tcpdns_worker {
 };
 
 /* destory, and remove from workers list */
-static void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
+static void tcpdns_worker_destroy(struct tcpdns_worker *worker)
 {
-    struct conn_tcpdns *master = worker->master;
+    struct proxy_tcpdns *master = worker->master;
 
     if (!worker)
         return;
 
     /* close connection (if present) */
     if (worker->proxy) {
-        worker->proxy->put(worker->proxy);
+        proxy_put(worker->proxy);
         worker->proxy = NULL;
     }
 
@@ -85,8 +85,8 @@ static void tcpdns_worker_destroy(struct conn_tcpdns_worker *worker)
 /* handle event occured in connection to DNS */
 static void tcpdns_worker_handle_event(void *userp, unsigned int event)
 {
-    struct conn_tcpdns_worker *worker = userp;
-    struct sk_ops *proxy = worker->proxy;
+    struct tcpdns_worker *worker = userp;
+    struct proxy *proxy = worker->proxy;
     ssize_t nread, nsent;
     uint16_t rsz;
 
@@ -96,8 +96,8 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLIN) {
-        nread = proxy->recv(proxy, worker->buffer + worker->nbuffer,
-                            sizeof(worker->buffer) - worker->nbuffer);
+        nread = proxy_recv(proxy, worker->buffer + worker->nbuffer,
+                        sizeof(worker->buffer) - worker->nbuffer);
         if (nread > 0) {
             worker->nbuffer += nread;
         } else {
@@ -109,7 +109,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
             rsz = be16toh(rsz);
             if (rsz + 2 == worker->nbuffer) {
                 const uint64_t val = 1;
-                proxy->put(proxy);
+                proxy_put(proxy);
                 worker->proxy = NULL;
                 worker->done = 1;
                 write(worker->master->evfd, &val, sizeof(val));
@@ -119,7 +119,7 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     if (event & EPOLLOUT) {
-        nsent = proxy->send(proxy, worker->buffer, worker->nbuffer);
+        nsent = proxy_send(proxy, worker->buffer, worker->nbuffer);
         if (nsent > 0) {
             worker->nbuffer -= nsent;
             memmove(worker->buffer, worker->buffer + nsent, worker->nbuffer);
@@ -128,8 +128,8 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
             return;
         }
         if (worker->nbuffer == 0) {
-            proxy->evctl(proxy, EPOLLIN, 1);
-            proxy->evctl(proxy, EPOLLOUT, 0);
+            proxy_evctl(proxy, EPOLLIN, 1);
+            proxy_evctl(proxy, EPOLLOUT, 0);
         }
     }
 
@@ -139,21 +139,21 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
 /* eventfd callback, triggered when worker has data */
 static void tcpdns_master_epcb_events(struct epcb_ops *epcb, unsigned events)
 {
-    struct conn_tcpdns *master =
-        container_of(epcb, struct conn_tcpdns, evfdepcb);
+    struct proxy_tcpdns *master =
+        container_of(epcb, struct proxy_tcpdns, evfdepcb);
     master->userev(master->userp, events);
 }
 
-/* empty impl for struct sk_ops :: shutdown */
-static int tcpdns_shutdown(struct sk_ops *conn, int how, int rst)
+/* empty impl for struct proxy :: shutdown */
+static int tcpdns_shutdown(struct proxy *proxy, int how, int rst)
 {
     return 0;
 }
 
-/* impl for struct sk_ops :: evctl */
-static void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
+/* impl for struct proxy :: evctl */
+static void tcpdns_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
     unsigned int new_events = enable ? (master->events | event)
                                      : (master->events & ~event);
 
@@ -167,14 +167,14 @@ static void tcpdns_evctl(struct sk_ops *conn, unsigned int event, int enable)
     }
 }
 
-/* impl for struct sk_ops :: send
+/* impl for struct proxy :: send
    create a worker to handle this query
 */
-static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
+static ssize_t tcpdns_send(struct proxy *proxy, const char *data, size_t size)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
     struct nspconf *conf = current_nspconf();
-    struct conn_tcpdns_worker *worker;
+    struct tcpdns_worker *worker;
     uint16_t sizebe;
 
     loglv(2, "--- tcpdns %zd bytes query", size);
@@ -183,7 +183,7 @@ static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
         return -E2BIG; /* query too large */
 
     /* init worker */
-    if ((worker = calloc(1, sizeof(struct conn_tcpdns_worker))) == NULL) {
+    if ((worker = calloc(1, sizeof(struct tcpdns_worker))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
@@ -218,13 +218,13 @@ static ssize_t tcpdns_send(struct sk_ops *conn, const char *data, size_t size)
     return size;
 }
 
-/* impl for struct sk_ops :: recv
+/* impl for struct proxy :: recv
    find a worker which is already got a reply, and return the reply
  */
-static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
+static ssize_t tcpdns_recv(struct proxy *proxy, char *data, size_t size)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
-    struct conn_tcpdns_worker *worker;
+    struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
+    struct tcpdns_worker *worker;
     ssize_t szrepl;
     ssize_t nread;
     uint64_t val;
@@ -256,7 +256,7 @@ static ssize_t tcpdns_recv(struct sk_ops *conn, char *data, size_t size)
 }
 
 /* internal destroy function, called when refcnt reaches zero */
-static void tcpdns_destroy_internal(struct conn_tcpdns *master)
+static void tcpdns_destroy_internal(struct proxy_tcpdns *master)
 {
     loglv(3, "tcpdns_destroy_internal: destroying tcpdns master");
 
@@ -273,43 +273,48 @@ static void tcpdns_destroy_internal(struct conn_tcpdns *master)
     free(master);
 }
 
-/* impl for struct sk_ops :: get */
-static void tcpdns_get(struct sk_ops *conn)
+/* impl for struct proxy :: get */
+static void tcpdns_get(struct proxy *proxy)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
     master->refcnt++;
 }
 
-/* impl for struct sk_ops :: put */
-static void tcpdns_put(struct sk_ops *conn)
+/* impl for struct proxy :: put */
+static void tcpdns_put(struct proxy *proxy)
 {
-    struct conn_tcpdns *master = container_of(conn, struct conn_tcpdns, ops);
+    struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
     if (--master->refcnt == 0) {
         tcpdns_destroy_internal(master);
     }
 }
 
+/* global vtable of proxy_tcpdns */
+static const struct proxy_ops dns_ops = {
+    .shutdown = &tcpdns_shutdown,
+    .evctl = &tcpdns_evctl,
+    .send = &tcpdns_send,
+    .recv = &tcpdns_recv,
+    .get = &tcpdns_get,
+    .put = &tcpdns_put,
+};
+
 /* create a pseudo udp connection
    used for handle DNS request represented in datagrams and forward to a
    TCP nameserver */
-struct sk_ops *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
+struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
                              void *userp, const char *addr, uint16_t port)
 {
-    struct conn_tcpdns *master;
+    struct proxy_tcpdns *master;
 
     loglv(3, "tcpdns_create: creating a new struct conn_tcpdns");
 
-    if ((master = calloc(1, sizeof(struct conn_tcpdns))) == NULL) {
+    if ((master = calloc(1, sizeof(struct proxy_tcpdns))) == NULL) {
         fprintf(stderr, "Out of Memory.\n");
         abort();
     }
 
-    master->ops.shutdown = &tcpdns_shutdown;
-    master->ops.evctl = &tcpdns_evctl;
-    master->ops.send = &tcpdns_send;
-    master->ops.recv = &tcpdns_recv;
-    master->ops.get = &tcpdns_get;
-    master->ops.put = &tcpdns_put;
+    master->ops.ops = &dns_ops;
     master->evfdepcb.on_epoll_events = &tcpdns_master_epcb_events;
 
     master->refcnt = 1;
