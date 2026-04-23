@@ -108,7 +108,14 @@ static void set_setgroups(const char *action)
     int ret = write_string("/proc/self/setgroups", action);
 
     if (ret < 0) {
-        fprintf(stderr, "nsproxy: set groups failed: %s\n", strerror(-ret));
+        fprintf(stderr,
+                "nsproxy: set groups failed: %s\n"
+                "hints: If you are using Ubuntu >= 23.10, add the following "
+                "content to /etc/sysctl.d/70-apparmor-userns.conf\n"
+                "    kernel.apparmor_restrict_unprivileged_userns=0\n"
+                "then run command (with root)\n"
+                "    sysctl -p /etc/sysctl.d/70-apparmor-userns.conf\n",
+                strerror(-ret));
         abort();
     }
 }
@@ -505,7 +512,11 @@ static int child(int sk, char *cmd[])
         if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
             fprintf(stderr,
                     "nsproxy: create net_namespace failed: %s\n"
-                    "nsproxy: nsproxy can't run on this system.\n",
+                    "hint: If you are using Debian <= 10, add the following "
+                    "content to /etc/sysctl.d/70-unprivileged-userns.conf\n"
+                    "    kernel.unprivileged_userns_clone=1\n"
+                    "then run command (with root)\n"
+                    "    sysctl -p /etc/sysctl.d/70-unprivileged-userns.conf\n",
                     strerror(errno));
             exit(EXIT_FAILURE);
         }
