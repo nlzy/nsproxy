@@ -64,6 +64,7 @@ struct nspconf {
     uint16_t proxyport;
     uint8_t proxytype;
     char dnssrv[SERVNAME_MAXLEN + 1];
+    uint16_t dnsport;
     uint8_t dnstype;
     char proxyuser[AUTH_MAXLEN + 1];   /* Proxy username for authentication */
     char proxypass[AUTH_MAXLEN + 1];   /* Proxy password for authentication */

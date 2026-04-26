@@ -568,10 +568,10 @@ void core_udp_new(struct udp_pcb *pcb)
         && conf->dnstype != DNS_REDIR_OFF) {
         if (conf->dnstype == DNS_REDIR_TCP)
             fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd,
-                                       conf->dnssrv, pcb->local_port);
+                                       conf->dnssrv, conf->dnsport);
         else
             fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                           conf->dnssrv, pcb->local_port);
+                                           conf->dnssrv, conf->dnsport);
         return;
     }
 

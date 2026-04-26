@@ -711,12 +711,46 @@ int main(int argc, char *argv[])
 
     if (strcmp(dns, "off") == 0) {
         conf.dnstype = DNS_REDIR_OFF;
-    } else if (strstr(dns, "tcp://") == dns) {
-        conf.dnstype = DNS_REDIR_TCP;
-        strlcpy(conf.dnssrv, dns + strlen("tcp://"), sizeof(conf.dnssrv));
-    } else if (strstr(dns, "udp://") == dns) {
-        conf.dnstype = DNS_REDIR_UDP;
-        strlcpy(conf.dnssrv, dns + strlen("udp://"), sizeof(conf.dnssrv));
+    } else if (strstr(dns, "tcp://") == dns || strstr(dns, "udp://") == dns) {
+        const char *sv = dns + strlen("tcp://"); /* same size with "udp://" */
+        const char *sep, *ipbegin, *ipend;
+        size_t iplen;
+        int port;
+
+        if (sv[0] == '[') {
+            /* [ipv6] or [ipv6_addr]:port */
+            ipbegin = sv + 1;
+            if ((ipend = strchr(ipbegin, ']')) == NULL) {
+                fprintf(stderr, "nsproxy: Bad DNS server address\n");
+                exit(EXIT_FAILURE);
+            }
+            sep = strchr(ipend, ':');
+        } else {
+            /* ipv4 / ipv4:port */
+            ipbegin = sv;
+            sep = strchr(sv, ':');
+            if (sep != strrchr(sv, ':')) {
+                fprintf(stderr, "nsproxy: IPv6 DNS must be enclosed in []\n");
+                exit(EXIT_FAILURE);
+            }
+            ipend = sep ? sep : (sv + strlen(ipbegin));
+        }
+
+        iplen = ipend - ipbegin;
+        if (iplen == 0 || iplen > SERVNAME_MAXLEN) {
+            fprintf(stderr, "nsproxy: Bad DNS server address\n");
+            exit(EXIT_FAILURE);
+        }
+
+        port = sep ? atoi(sep + 1) : 53;
+        if (port <= 0 || port > 65535) {
+            fprintf(stderr, "nsproxy: Bad DNS server port\n");
+            exit(EXIT_FAILURE);
+        }
+
+        snprintf(conf.dnssrv, sizeof(conf.dnssrv), "%.*s", (int)iplen, ipbegin);
+        conf.dnsport = port;
+        conf.dnstype = dns[0] == 't' ? DNS_REDIR_TCP : DNS_REDIR_UDP;
     } else {
         fprintf(stderr, "nsproxy: unsupported dns server address.\n");
         exit(EXIT_FAILURE);
