@@ -62,11 +62,12 @@ Options:
     DNS redirect, allow following options:
       -d off
         Do nothings on DNS, treat as normal UDP packets.
-      -d tcp://<nameserver_ipaddress>
+      -d tcp://<server_ip>[:port]
         Redirect DNS requests to specified TCP nameserver.
-      -d udp://<nameserver_ipaddress>
+      -d udp://<server_ip>[:port]
         Redirect DNS requests to specified UDP nameserver.
-    Default value is "tcp://1.1.1.1"
+    IPv6 addresses must be enclosed in brackets (e.g. udp://[::1]:53).
+    Default value is "tcp://1.1.1.1".
 
   -6,
     Enable IPv6 support.

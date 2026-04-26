@@ -32,13 +32,13 @@ DNS redirection strategy. Supported values:
 .RS
 .IP \fBoff\fR
 Do nothing with DNS; treat as normal UDP packets.
-.IP \fBtcp://\fR\fIserver_ip\fR
+.IP \fBtcp://\fR\fIserver_ip\fR[\fB:\fR\fIport\fR]
 Redirect DNS requests to the specified TCP nameserver.
-.IP \fBudp://\fR\fIserver_ip\fR
+.IP \fBudp://\fR\fIserver_ip\fR[\fB:\fR\fIport\fR]
 Redirect DNS requests to the specified UDP nameserver.
 .RE
 .IP
-Default is "tcp://1.1.1.1".
+Default is "tcp://1.1.1.1". IPv6 addresses must be enclosed in brackets (e.g., \fBtcp://[::1]:53\fR).
 .TP
 .BI \-a " user:password"
 Proxy authentication (SOCKS5 or HTTP Basic Auth).
