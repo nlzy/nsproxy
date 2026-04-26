@@ -156,6 +156,11 @@ static err_t tunif_init(struct netif *netif)
     return ERR_OK;
 }
 
+static int is_gateway(const struct netif *netif, const ip_addr_t *addr)
+{
+    return ip_addr_cmp(addr, netif_ip_addr4(netif))
+           || ip_addr_cmp(addr, netif_ip_addr6(netif, 0));
+}
 
 /* Create a new tcp_forward instance and add to list */
 static struct tcp_forward *tcp_forward_create(struct corectx *core)
@@ -548,8 +553,7 @@ void core_udp_new(struct udp_pcb *pcb)
     struct corectx *core = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
     struct udp_forward *fwd;
-    char *addr = ipaddr_ntoa(&pcb->local_ip);
-    uint16_t port = pcb->local_port;
+    char ip[IPADDR_STRLEN_MAX + 1];
 
     fwd = udp_forward_create(core);
     fwd->pcb = pcb;
@@ -558,34 +562,37 @@ void core_udp_new(struct udp_pcb *pcb)
         : NSPROXY_UDP_IDLE_TIMEOUT;
 
     udp_recv(pcb, udp_lwip_received, fwd);
-
-    /* redir for DNS */
-    if (port == 53 && strcmp(addr, NSPROXY_GATEWAY_IP) == 0) {
-        if (conf->dnstype == DNS_REDIR_OFF) {
-            /* let udp_lwip_received() drop packet */
-            fwd->proxy = NULL;
-            return;
-        }
-        if (conf->dnstype == DNS_REDIR_TCP) {
+    
+    /* DNS redirection */
+    if (is_gateway(&core->tunif, &pcb->local_ip) && pcb->local_port == 53
+        && conf->dnstype != DNS_REDIR_OFF) {
+        if (conf->dnstype == DNS_REDIR_TCP)
             fwd->proxy = tcpdns_create(core->loop, &udp_proxy_io_event, fwd,
-                                       conf->dnssrv, port);
-            return;
-        }
-        if (conf->dnstype == DNS_REDIR_UDP) {
-            addr = conf->dnssrv;
-            /* continue */
-        }
+                                       conf->dnssrv, pcb->local_port);
+        else
+            fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                           conf->dnssrv, pcb->local_port);
+        return;
     }
 
+    /* forward gateway to host namespace  */
+    if (is_gateway(&core->tunif, &pcb->local_ip)) {
+        const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
+        fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
+                                       localhost, pcb->local_port);
+        return;
+    }
+
+    ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5) {
         fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                      addr, port);
+                                      ip, pcb->local_port);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
         fwd->proxy = NULL;
     } else {
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                       addr, port);
+                                       ip, pcb->local_port);
     }
 }
 
@@ -809,6 +816,7 @@ void core_tcp_new(struct tcp_pcb *pcb)
     struct corectx *core = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
     struct tcp_forward *fwd;
+    char ip[IPADDR_STRLEN_MAX + 1];
 
     fwd = tcp_forward_create(core);
     fwd->pcb = pcb;
@@ -819,17 +827,23 @@ void core_tcp_new(struct tcp_pcb *pcb)
     tcp_recv(pcb, &tcp_lwip_received);
     tcp_err(pcb, &tcp_lwip_err);
 
+    /* forward gateway to host namespace  */
+    if (is_gateway(&core->tunif, &pcb->local_ip)) {
+        const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
+        fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
+                                       localhost, pcb->local_port);
+        return;
+    }
+
+    ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5) {
         fwd->proxy = socks_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                      ipaddr_ntoa(&pcb->local_ip),
-                                      pcb->local_port);
+                                      ip, pcb->local_port);
     } else if (conf->proxytype == PROXY_HTTP) {
         fwd->proxy = http_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                     ipaddr_ntoa(&pcb->local_ip),
-                                     pcb->local_port);
+                                     ip, pcb->local_port);
     } else {
         fwd->proxy = direct_tcp_create(core->loop, &tcp_proxy_io_event, fwd,
-                                       ipaddr_ntoa(&pcb->local_ip),
-                                       pcb->local_port);
+                                       ip, pcb->local_port);
     }
 }
