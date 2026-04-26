@@ -22,6 +22,7 @@ Usage:
     pytest -v -k "sv_rst" tests/
 """
 
+import pytest
 import subprocess
 import time
 from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP
@@ -102,11 +103,15 @@ def test_tcp_rst_sv_direct(nsproxy_runner):
     _run_sv_rst_test(nsproxy_runner, ["-D"])
 
 
+@pytest.mark.skip_proxy("*", reason="No proxy supports transparent RST forwarding")
 def test_tcp_rst_sv_socks(proxy_server, nsproxy_runner):
     """Test TCP server RST functionality through SOCKS proxy."""
-    _run_sv_rst_test(nsproxy_runner, ["-s", "127.0.0.1", "-p", str(SOCKS_NOAUTH_PORT)])
+    _run_sv_rst_test(
+        nsproxy_runner, ["-s", "127.0.0.1", "-p", str(SOCKS_NOAUTH_PORT)]
+    )
 
 
+@pytest.mark.skip_proxy("*", reason="No proxy supports transparent RST forwarding")
 def test_tcp_rst_sv_http(proxy_server, nsproxy_runner):
     """Test TCP server RST functionality through HTTP proxy."""
     _run_sv_rst_test(

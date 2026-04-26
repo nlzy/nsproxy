@@ -110,6 +110,21 @@ def proxy_server(request):
         proc.wait()
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "skip_proxy(name, reason=None): skip test for specific proxy"
+    )
+
+
+def pytest_runtest_setup(item):
+    for mark in item.iter_markers(name="skip_proxy"):
+        skip_name = mark.args[0]
+        skip_reason = mark.kwargs.get("reason", "")
+        current_proxy = item.callspec.params.get("proxy_server") if hasattr(item, "callspec") else None
+        if skip_name in (current_proxy, "*"):
+            pytest.skip(skip_reason)
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--valgrind",

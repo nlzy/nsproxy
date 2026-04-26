@@ -24,6 +24,7 @@ Usage:
     pytest -v -k "halfclose_sv" tests/
 """
 
+import pytest
 import subprocess
 import time
 from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP
@@ -110,6 +111,7 @@ def test_tcp_halfclose_sv_direct(nsproxy_runner):
     _run_halfclose_sv_test(nsproxy_runner, ["-D"])
 
 
+@pytest.mark.skip_proxy("v2ray", reason="v2ray not supports half-close")
 def test_tcp_halfclose_sv_socks(proxy_server, nsproxy_runner):
     """Test TCP half-close (server-initiated) functionality through SOCKS proxy."""
     _run_halfclose_sv_test(
@@ -117,6 +119,7 @@ def test_tcp_halfclose_sv_socks(proxy_server, nsproxy_runner):
     )
 
 
+@pytest.mark.skip_proxy("v2ray", reason="v2ray not supports half-close")
 def test_tcp_halfclose_sv_http(proxy_server, nsproxy_runner):
     """Test TCP half-close (server-initiated) functionality through HTTP proxy."""
     _run_halfclose_sv_test(
