@@ -332,20 +332,15 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
     master->addr = strdup(addr);
     master->port = port;
 
-    if (master->evfd == -1) {
-        master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
-        if (master->evfd  == -1) {
-            perror("eventfd()");
-            abort();
-        }
+    master->evfd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC);
+    if (master->evfd  == -1) {
+        perror("eventfd()");
+        abort();
     }
 
     master->events = EPOLLOUT | EPOLLIN;
     loop_epoll_ctl(master->loop, EPOLL_CTL_ADD, master->evfd, master->events,
                    &master->evfdepcb);
-
-    master->events = 0;
-    master->evfd = -1;
 
     return &master->ops;
 }
