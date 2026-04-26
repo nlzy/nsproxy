@@ -85,7 +85,7 @@ static void map_uid(unsigned int from, unsigned int to)
 
     if (ret < 0) {
         fprintf(stderr, "nsproxy: map_uid() failed: %s\n", strerror(-ret));
-        abort();
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -99,7 +99,7 @@ static void map_gid(unsigned int from, unsigned int to)
 
     if (ret < 0) {
         fprintf(stderr, "nsproxy: map_gid() failed: %s\n", strerror(-ret));
-        abort();
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -116,7 +116,7 @@ static void set_setgroups(const char *action)
                 "then run command (with root)\n"
                 "    sysctl -p /etc/sysctl.d/70-apparmor-userns.conf\n",
                 strerror(-ret));
-        abort();
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -127,7 +127,7 @@ static void bringup_loopback(void)
 
     if ((sk = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1) {
         perror("socket()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if (!current_nspconf()->ipv6) {
@@ -135,8 +135,8 @@ static void bringup_loopback(void)
     }
 
     if (ioctl(sk, SIOCSIFFLAGS, &ifr) == -1) {
-        perror("ioctl()");
-        abort();
+        perror("ioctl(SIOCSIFFLAGS)");
+        exit(EXIT_FAILURE);
     }
 
     close(sk);
@@ -151,7 +151,7 @@ static int bringup_tun(void)
 
     if ((sk = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1) {
         perror("socket()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* create tun0 */
@@ -166,20 +166,20 @@ static int bringup_tun(void)
             exit(EXIT_FAILURE);
         } else {
             perror("open(/dev/net/tun)");
-            abort();
+            exit(EXIT_FAILURE);
         }
     }
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     if (ioctl(tunfd, TUNSETIFF, &ifr) == -1) {
         perror("ioctl(TUNSETIFF)");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* configure tun0 */
     ifr.ifr_mtu = NSPROXY_MTU;
     if (ioctl(sk, SIOCSIFMTU, &ifr) == -1) {
         perror("ioctl(SIOCSIFMTU)");
-        abort();
+        exit(EXIT_FAILURE);
     }
     if (current_nspconf()->ipv6) {
         /* return value is not checked, failure is allowed. */
@@ -196,7 +196,7 @@ static int bringup_tun(void)
     ifr.ifr_flags = IFF_UP | IFF_RUNNING;
     if (ioctl(sk, SIOCSIFFLAGS, &ifr) == -1) {
         perror("ioctl(SIOCSIFFLAGS)");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* configure IPv4 addr */
@@ -205,17 +205,17 @@ static int bringup_tun(void)
     inet_pton(AF_INET, NSPROXY_LOCAL_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFADDR, &ifr) < 0) {
         perror("ioctl(SIOCSIFADDR)");
-        abort();
+        exit(EXIT_FAILURE);
     }
     inet_pton(AF_INET, NSPROXY_GATEWAY_IP, &sai->sin_addr);
     if (ioctl(sk, SIOCGIFDSTADDR, &ifr) < 0) {
         perror("ioctl(SIOCGIFDSTADDR)");
-        abort();
+        exit(EXIT_FAILURE);
     }
     inet_pton(AF_INET, NSPROXY_NETMASK, &sai->sin_addr);
     if (ioctl(sk, SIOCSIFNETMASK, &ifr) < 0) {
         perror("ioctl(SIOCSIFNETMASK)");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* configure IPv4 route */
@@ -233,7 +233,7 @@ static int bringup_tun(void)
     route.rt_dev = ifr.ifr_name;
     if (ioctl(sk, SIOCADDRT, &route) < 0) {
         perror("ioctl(SIOCADDRT)");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     loglv(3, "child: brought up tun device and configured IPv4");
@@ -251,12 +251,12 @@ static void setup_ipv6(void)
 
     if ((sk = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1) {
         perror("socket()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if (ioctl(sk, SIOCGIFINDEX, &ifr) < 0) {
         perror("ioctl(SIOCGIFINDEX)");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* add ipv6 address */
@@ -266,7 +266,7 @@ static void setup_ipv6(void)
 
     if (ioctl(sk, SIOCSIFADDR, &ifr6) < 0) {
         perror("ioctl(SIOCSIFADDR) IPv6");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* add ipv6 default gateway */
@@ -279,7 +279,7 @@ static void setup_ipv6(void)
 
     if (ioctl(sk, SIOCADDRT, &rtmsg6) < 0) {
         perror("ioctl(SIOCADDRT) IPv6");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     loglv(3, "child: configured IPv6");
@@ -388,7 +388,7 @@ static void send_fd(int sock, int fd)
 
     if (sendmsg(sock, &msg, 0) == -1) {
         perror("sendmsg()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -411,7 +411,7 @@ static int recv_fd(int sock)
 
     if ((nrecv = recvmsg(sock, &msg, MSG_CMSG_CLOEXEC)) < 0) {
         perror("recvmsg()");
-        abort();
+        exit(EXIT_FAILURE);
     }
     if (nrecv == 0) {
         exit(EXIT_FAILURE);
@@ -419,6 +419,7 @@ static int recv_fd(int sock)
 
     cmsg = CMSG_FIRSTHDR(&msg);
     if (cmsg == NULL || cmsg->cmsg_type != SCM_RIGHTS) {
+        fprintf(stderr, "nsproxy: empty cmsg in recv_fd()\n");
         exit(EXIT_FAILURE);
     }
 
@@ -451,26 +452,26 @@ static int parent(int sk)
 
     if (sigemptyset(&mask) == -1) {
         perror("sigemptyset()");
-        abort();
+        exit(EXIT_FAILURE);
     }
     if (sigaddset(&mask, SIGCHLD) == -1) {
         perror("sigaddset()");
-        abort();
+        exit(EXIT_FAILURE);
     }
     if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
         perror("sigprocmask()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if ((childfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
         perror("signalfd()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     /* write a byte after sigmask is set, indicate set up completely */
     if (write(sk, &dummy, sizeof(dummy)) == -1) {
         perror("write()");
-        abort();
+        exit(EXIT_FAILURE);
     }
     close(sk);
 
@@ -560,7 +561,7 @@ static int child(int sk, char *cmd[])
        prevent child process being terminated before sigmask is set  */
     if (read(sk, &dummy, sizeof(dummy)) == -1) {
         perror("read()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     close(sk);
@@ -569,11 +570,11 @@ static int child(int sk, char *cmd[])
 
     if (execvp(cmd[0], cmd) == -1) {
         if (errno == ENOENT) {
-            fprintf(stderr, "nsproxy: command not found: %s\n", cmd[0]);
+            fprintf(stderr, "nsproxy: Command not found: %s\n", cmd[0]);
             exit(EXIT_FAILURE);
         } else {
             perror("execvp()");
-            abort();
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -758,12 +759,12 @@ int main(int argc, char *argv[])
     /* main */
     if (socketpair(AF_UNIX, SOCK_STREAM | SFD_CLOEXEC, 0, skpair) == -1) {
         perror("socketpair()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if ((cid = fork()) == -1) {
         perror("fork()");
-        abort();
+        exit(EXIT_FAILURE);
     }
 
     if (cid) {
