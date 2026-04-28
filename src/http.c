@@ -176,28 +176,40 @@ static void http_handshake_output(struct proxy_http *self)
 
     /* it's first called to this function, assembly request */
     if (!self->nbuffer) {
+        const char *lb, *rb;
+
+        if (strchr(self->addr, ':') != NULL) {
+            /* addr is IPv6 */
+            lb = "[";
+            rb = "]";
+        } else {
+            lb = rb = "";
+        }
+
         if (strlen(current_nspconf()->proxyuser)) {
             char credentials[AUTH_MAXLEN * 2 + 1 + 1];
             char base64[BASE64_OUTLEN(AUTH_MAXLEN * 2 + 1)];
+
             snprintf(credentials, sizeof(credentials), "%s:%s",
                      current_nspconf()->proxyuser, current_nspconf()->proxypass);
             base64_encode(base64, sizeof(base64), credentials, 
                           strlen(credentials));
+
             self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
-                                     "CONNECT %s:%u HTTP/1.1"        "\r\n"
-                                     "Host: %s:%u"                   "\r\n"
-                                     "Proxy-Authorization: Basic %s" "\r\n"
-                                     "\r\n",
-                                     self->addr, (unsigned int)self->port,
-                                     self->addr, (unsigned int)self->port,
-                                     base64);
+                "CONNECT %s%s%s:%u HTTP/1.1"       "\r\n"
+                "Host: %s%s%s:%u"                  "\r\n"
+                "Proxy-Authorization: Basic %s"    "\r\n"
+                "\r\n",
+                lb, self->addr, rb, (unsigned)self->port,
+                lb, self->addr, rb, (unsigned)self->port,
+                base64);
         } else {
             self->nbuffer = snprintf(self->buffer, sizeof(self->buffer),
-                                     "CONNECT %s:%u HTTP/1.1" "\r\n"
-                                     "Host: %s:%u"            "\r\n"
-                                     "\r\n",
-                                     self->addr, (unsigned int)self->port,
-                                     self->addr, (unsigned int)self->port);
+                "CONNECT %s%s%s:%u HTTP/1.1"    "\r\n"
+                "Host: %s%s%s:%u"               "\r\n"
+                "\r\n",
+                lb, self->addr, rb, (unsigned)self->port,
+                lb, self->addr, rb, (unsigned)self->port);
         }
     }
 
