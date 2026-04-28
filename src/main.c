@@ -782,7 +782,7 @@ int main(int argc, char *argv[])
         else if (conf.dnstype == DNS_REDIR_UDP)
             snprintf(dispdns, sizeof(dispdns), "udp://%s", conf.dnssrv);
         else
-            strlcpy(dispserv, "(off)", sizeof(dispserv));
+            strlcpy(dispdns, "(off)", sizeof(dispdns));
 
         loglv(0, "Proxy Server:     %s", dispserv);
         loglv(0, "DNS Redirection:  %s", dispdns);
