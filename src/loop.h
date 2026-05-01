@@ -11,5 +11,5 @@ struct epcb_ops {
     void (*on_epoll_events)(struct epcb_ops *conn, unsigned int events);
 };
 
-void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
-                    struct epcb_ops *epcb);
+int loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
+                   struct epcb_ops *epcb);

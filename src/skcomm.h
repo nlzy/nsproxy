@@ -21,7 +21,7 @@ struct sk_comm {
 int skcomm_common_connect(struct sk_comm *comm, const char *addr,
                           uint16_t port);
 
-void skcomm_common_evctl(struct sk_comm *comm, unsigned int event, int enable);
+int skcomm_common_evctl(struct sk_comm *comm, unsigned int event, int enable);
 ssize_t skcomm_common_send(struct sk_comm *comm, const char *data, size_t size);
 ssize_t skcomm_common_sendmsg(struct sk_comm *comm, struct msghdr *msg);
 ssize_t skcomm_common_recv(struct sk_comm *comm, char *data, size_t size);

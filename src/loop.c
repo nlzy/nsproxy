@@ -122,13 +122,15 @@ int loop_run(struct loopctx *loop)
     }
 }
 
-void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
-                    struct epcb_ops *epcb)
+int loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
+                   struct epcb_ops *epcb)
 {
+    int err;
     struct epoll_event ev;
+
     ev.events = events;
     ev.data.ptr = epcb;
-    if (epoll_ctl(loop->epfd, op, fd, &ev) == -1) {
+    if ((err = epoll_ctl(loop->epfd, op, fd, &ev)) == -1) {
         if (errno == EEXIST) {
             loglv(3, "loop_epoll_ctl: fd %d is registered already", fd);
         } else if (errno == ENOENT) {
@@ -138,4 +140,6 @@ void loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
             abort();
         }
     }
+
+    return err;
 }

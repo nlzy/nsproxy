@@ -61,8 +61,9 @@ int skcomm_common_connect(struct sk_comm *comm, const char *addr,
     return 0;
 }
 
-void skcomm_common_evctl(struct sk_comm *comm, unsigned int event, int enable)
+int skcomm_common_evctl(struct sk_comm *comm, unsigned int event, int enable)
 {
+    int err = 0;
     unsigned int new_events = enable ? (comm->events | event)
                                      : (comm->events & ~event);
 
@@ -70,9 +71,11 @@ void skcomm_common_evctl(struct sk_comm *comm, unsigned int event, int enable)
         int op = (comm->events == 0) ? EPOLL_CTL_ADD :
                  (new_events == 0)   ? EPOLL_CTL_DEL :
                                        EPOLL_CTL_MOD;
-        loop_epoll_ctl(comm->loop, op, comm->sfd, new_events, &comm->epcb);
+        err = loop_epoll_ctl(comm->loop, op, comm->sfd, new_events, &comm->epcb);
         comm->events = new_events;
     }
+
+    return err;
 }
 
 ssize_t skcomm_common_send(struct sk_comm *comm, const char *data, size_t size)

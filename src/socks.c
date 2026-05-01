@@ -580,14 +580,14 @@ static int socks_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* impl for struct proxy :: evctl */
-static void socks_evctl(struct proxy *proxy, unsigned int event, int enable)
+static int socks_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
 
     if (self->phase != PHASE_FORWARDING)
-        return;
+        return -EAGAIN;
 
-    skcomm_common_evctl(&self->comm, event, enable);
+    return skcomm_common_evctl(&self->comm, event, enable);
 }
 
 /* impl for struct proxy :: send */

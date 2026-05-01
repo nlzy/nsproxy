@@ -151,9 +151,10 @@ static int tcpdns_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* impl for struct proxy :: evctl */
-static void tcpdns_evctl(struct proxy *proxy, unsigned int event, int enable)
+static int tcpdns_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
+    int err = 0;
     unsigned int new_events = enable ? (master->events | event)
                                      : (master->events & ~event);
 
@@ -161,10 +162,12 @@ static void tcpdns_evctl(struct proxy *proxy, unsigned int event, int enable)
         int op = (master->events == 0) ? EPOLL_CTL_ADD :
                  (new_events == 0)     ? EPOLL_CTL_DEL :
                                          EPOLL_CTL_MOD;
-        loop_epoll_ctl(master->loop, op, master->evfd, new_events,
-                       &master->evfdepcb);
+        err = loop_epoll_ctl(master->loop, op, master->evfd, new_events,
+                             &master->evfdepcb);
         master->events = new_events;
     }
+
+    return err;
 }
 
 /* impl for struct proxy :: send

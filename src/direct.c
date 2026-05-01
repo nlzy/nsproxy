@@ -34,10 +34,10 @@ static int direct_shutdown(struct proxy *proxy, int how, int rst)
 }
 
 /* impl for struct proxy :: evctl */
-static void direct_evctl(struct proxy *proxy, unsigned int event, int enable)
+static int direct_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_direct *self = container_of(proxy, struct proxy_direct, ops);
-    skcomm_common_evctl(&self->comm, event, enable);
+    return skcomm_common_evctl(&self->comm, event, enable);
 }
 
 /* impl for struct proxy :: send */
