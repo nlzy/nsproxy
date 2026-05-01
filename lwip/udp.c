@@ -324,7 +324,8 @@ udp_input(struct pbuf *p, struct netif *inp)
     pcb->next = udp_pcbs;
     udp_pcbs = pcb;
     if (core_udp_new(pcb) != ERR_OK) {
-      pbuf_header_force(p, (s16_t)(ip_current_header_tot_len() + UDP_HLEN));
+      /* move payload pointer back to ip header */
+      pbuf_header_force(p, (s16_t)ip_current_header_tot_len());
       icmp_port_unreach(ip_current_is_v6(), p);
       pbuf_free(p);
       goto end;
