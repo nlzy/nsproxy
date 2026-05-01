@@ -104,7 +104,7 @@ def managed_proc(proc):
 
 
 @pytest.fixture(
-    scope="module",
+    scope="session",
     params=["v2ray", "singbox", "shadowsocks"],
     ids=["v2ray", "singbox", "shadowsocks"],
 )
@@ -118,8 +118,8 @@ def proxy_server(request):
 
         proc = subprocess.Popen(
             [PROXY_V2RAY_PATH, "run", "-c", PROXY_V2RAY_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         procs.append(proc)
 
@@ -129,8 +129,8 @@ def proxy_server(request):
 
         proc = subprocess.Popen(
             [PROXY_SINGBOX_PATH, "run", "-c", PROXY_SINGBOX_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         procs.append(proc)
 
@@ -148,16 +148,16 @@ def proxy_server(request):
         # Start ssserver first
         proc_server = subprocess.Popen(
             [PROXY_SS_SERVER_PATH, "-c", PROXY_SS_SERVER_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         procs.append(proc_server)
 
         # Start sslocal
         proc_local = subprocess.Popen(
             [PROXY_SS_LOCAL_PATH, "-c", PROXY_SS_LOCAL_CONFIG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         procs.append(proc_local)
 
