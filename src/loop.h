@@ -3,7 +3,7 @@
 
 struct loopctx;
 
-void loop_init(struct loopctx **loop, int tunfd,int sigfd);
+void loop_init(struct loopctx **loop, int sigfd);
 void loop_deinit(struct loopctx *loop);
 int loop_run(struct loopctx *loop);
 

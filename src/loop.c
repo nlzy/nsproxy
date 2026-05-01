@@ -61,7 +61,7 @@ static int sigfd_handler(struct loopctx *loop)
     }
 }
 
-void loop_init(struct loopctx **loop, int tunfd, int sigfd)
+void loop_init(struct loopctx **loop, int sigfd)
 {
     struct loopctx *p;
     struct epoll_event ev;

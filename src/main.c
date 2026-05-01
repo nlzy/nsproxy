@@ -475,7 +475,7 @@ static int parent(int sk)
     }
     close(sk);
 
-    loop_init(&loop, tunfd, childfd);
+    loop_init(&loop, childfd);
     core_init(&core, loop, tunfd);
 
     loglv(3, "parent: starting event loop");
