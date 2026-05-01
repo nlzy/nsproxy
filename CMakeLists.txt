@@ -54,11 +54,6 @@ target_compile_options(nsproxy PRIVATE
     -Wno-unused-variable
     -Wno-array-bounds # caused by tricky hacks in lwIP
     -fstack-protector-strong
-    $<$<CONFIG:Debug>:-fsanitize=address>
-)
-
-target_link_options(nsproxy PRIVATE
-    $<$<CONFIG:Debug>:-fsanitize=address>
 )
 
 include(GNUInstallDirs)
