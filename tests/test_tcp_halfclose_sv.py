@@ -27,15 +27,14 @@ Usage:
 import pytest
 import subprocess
 import time
-from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP
+from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP, wait_server, managed_proc
 
 
 def _run_halfclose_sv_test(nsproxy_runner, extra_args):
     """Helper function to run TCP half-close (server-initiated) test with given nsproxy args."""
     HALFCLOSE_PORT = 37777
 
-    # Start the half-close server
-    server_proc = subprocess.Popen(
+    with managed_proc(subprocess.Popen(
         [
             "python3",
             "tests/tools/tcp_halfclose_sv.py",
@@ -46,28 +45,28 @@ def _run_halfclose_sv_test(nsproxy_runner, extra_args):
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
+    )) as server:
+        wait_server(server, "Server listened on")
 
-    # Wait for server to start listening
-    time.sleep(0.5)
-
-    try:
-        client_args = extra_args + [
+        with managed_proc(nsproxy_runner(extra_args + [
             "python3",
             "tests/tools/tcp_halfclose_sv.py",
             "-c",
             LOCAL_IP,
             "-p",
             str(HALFCLOSE_PORT),
-        ]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(timeout=30)
+        ])) as client:
+            stdout, stderr = client.communicate(timeout=3)
 
         # Get outputs
         stdout_str = stdout.decode(errors="replace")
         stderr_str = stderr.decode(errors="replace")
 
-        server_stdout, server_stderr = server_proc.communicate(timeout=5)
+        # Immediately kill server after client finishes
+        if server.poll() is None:
+            server.kill()
+
+        server_stdout, server_stderr = server.communicate(timeout=3)
         server_stdout_str = server_stdout.decode(errors="replace")
         server_stderr_str = server_stderr.decode(errors="replace")
 
@@ -89,21 +88,12 @@ def _run_halfclose_sv_test(nsproxy_runner, extra_args):
         )
 
         # 4. Both processes exit successfully
-        assert server_proc.returncode == 0, (
-            f"Server exited with error code {server_proc.returncode}. stderr: {server_stderr_str}"
+        assert server.returncode == 0, (
+            f"Server exited with error code {server.returncode}. stderr: {server_stderr_str}"
         )
         assert client.returncode == 0, (
             f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
         )
-
-    finally:
-        # Cleanup
-        if server_proc.poll() is None:
-            server_proc.terminate()
-            try:
-                server_proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
 
 
 def test_tcp_halfclose_sv_direct(nsproxy_runner):

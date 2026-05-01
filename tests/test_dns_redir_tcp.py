@@ -26,6 +26,7 @@ import time
 from .conftest import (
     HTTP_NOAUTH_PORT,
     SOCKS_NOAUTH_PORT,
+    managed_proc,
 )
 
 COREDNS_CONFIG = "tests/conf/coredns.conf"
@@ -34,27 +35,25 @@ COREDNS_PORT = 30053
 
 def _run_dns_redir_tcp_test(nsproxy_runner, extra_args):
     """Run DNS redirection TCP test through nsproxy"""
-    # Start the CoreDNS server
-    server_proc = subprocess.Popen(
+    with managed_proc(subprocess.Popen(
         ["coredns", "-conf", COREDNS_CONFIG],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
+    )):
+        # Wait for server to start listening
+        time.sleep(0.5)
 
-    # Wait for server to start listening
-    time.sleep(0.5)
-
-    try:
         # Run the dig client through nsproxy
-        client_args = extra_args + [
+        with managed_proc(nsproxy_runner(extra_args + [
             "-d",
             f"tcp://127.0.0.1:{COREDNS_PORT}",
             "dig",
             "+short",
+            "+time=1",
+            "+tries=2",
             "example.com",
-        ]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(timeout=30)
+        ])) as client:
+            stdout, stderr = client.communicate(timeout=3)
 
         # Get outputs
         stdout_str = stdout.decode(errors="replace")
@@ -67,14 +66,6 @@ def _run_dns_redir_tcp_test(nsproxy_runner, extra_args):
         assert client.returncode == 0, (
             f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
         )
-
-    finally:
-        if server_proc.poll() is None:
-            server_proc.terminate()
-            try:
-                server_proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
 
 
 def test_dns_redir_tcp_direct(nsproxy_runner):

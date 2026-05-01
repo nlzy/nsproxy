@@ -21,7 +21,7 @@ Usage:
 
 import subprocess
 import time
-from .conftest import LOCAL_IP, SOCKS_NOAUTH_PORT
+from .conftest import LOCAL_IP, SOCKS_NOAUTH_PORT, wait_server, managed_proc
 
 
 def _run_udp_pingpong_test(nsproxy_runner, extra_args):
@@ -29,8 +29,7 @@ def _run_udp_pingpong_test(nsproxy_runner, extra_args):
     pingpong_script = "tests/tools/udp_pingpong.py"
     pingpong_port = 37777
 
-    # Start the pingpong server
-    server_proc = subprocess.Popen(
+    with managed_proc(subprocess.Popen(
         [
             "python3",
             pingpong_script,
@@ -41,29 +40,28 @@ def _run_udp_pingpong_test(nsproxy_runner, extra_args):
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
+    )) as server:
+        wait_server(server, "Server bind on")
 
-    # Wait for server to start listening
-    time.sleep(0.5)
-
-    try:
-        # Run the pingpong client through nsproxy
-        client_args = extra_args + [
+        with managed_proc(nsproxy_runner(extra_args + [
             "python3",
             pingpong_script,
             "-c",
             LOCAL_IP,
             "-p",
             str(pingpong_port),
-        ]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(timeout=30)
+        ])) as client:
+            stdout, stderr = client.communicate(timeout=3)
 
         # Get outputs
         stdout_str = stdout.decode(errors="replace")
         stderr_str = stderr.decode(errors="replace")
 
-        server_stdout, server_stderr = server_proc.communicate(timeout=5)
+        # Immediately kill server after client finishes
+        if server.poll() is None:
+            server.kill()
+
+        server_stdout, server_stderr = server.communicate(timeout=3)
         server_stdout_str = server_stdout.decode(errors="replace")
         server_stderr_str = server_stderr.decode(errors="replace")
 
@@ -74,20 +72,12 @@ def _run_udp_pingpong_test(nsproxy_runner, extra_args):
         assert "CLIENT-RECV-OK" in stdout_str, (
             f"Client did not receive data. stderr: {stderr_str}"
         )
-        assert server_proc.returncode == 0, (
-            f"Server exited with error code {server_proc.returncode}. stderr: {server_stderr_str}"
+        assert server.returncode == 0, (
+            f"Server exited with error code {server.returncode}. stderr: {server_stderr_str}"
         )
         assert client.returncode == 0, (
             f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
         )
-
-    finally:
-        if server_proc.poll() is None:
-            server_proc.terminate()
-            try:
-                server_proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
 
 
 def test_basic_udp_direct(nsproxy_runner):

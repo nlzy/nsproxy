@@ -50,7 +50,7 @@ def run_server(bind_addr, port):
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((bind_addr, port))
-    print(f"Server listening on {bind_addr}:{port}", flush=True)
+    print(f"Server bind on {bind_addr}:{port}", flush=True)
 
     # diagram.2: Receive 'c' from client
     server_sock.settimeout(10)
@@ -80,12 +80,12 @@ def run_server(bind_addr, port):
 def run_client(server_addr, port):
     """Run as client"""
     client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client_sock.settimeout(1.0)
 
     # diagram.1: Send 'c' to server
     client_sock.sendto(b"c" * DATA_SIZE, (server_addr, port))
 
     # diagram.5: Receive 's' from server
-    client_sock.settimeout(10)
     data, server_addr_received = client_sock.recvfrom(DATA_SIZE + 100)
 
     if len(data) != DATA_SIZE:

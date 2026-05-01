@@ -61,8 +61,8 @@ def run_server(bind_addr, port):
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((bind_addr, port))
-    print(f"Server listening on {bind_addr}:{port}", flush=True)
     server_sock.listen(1)
+    print(f"Server listened on {bind_addr}:{port}", flush=True)
 
     conn, addr = server_sock.accept()
 
@@ -96,6 +96,7 @@ def run_server(bind_addr, port):
 def run_client(server_addr, port):
     """Run as client"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1.0)
     sock.connect((server_addr, port))
 
     # diagram.1: Send 'c' to server

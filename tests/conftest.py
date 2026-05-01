@@ -1,8 +1,11 @@
+import os
+import select
+import socket
 import subprocess
 import time
+from contextlib import contextmanager
+
 import pytest
-import socket
-import os
 
 # Configuration
 NSPROXY_PATH = "./build/nsproxy"
@@ -40,6 +43,51 @@ def get_local_ip():
 
 
 LOCAL_IP = get_local_ip()
+
+
+def wait_server(proc, marker, timeout=2):
+    """Wait for one of the startup marker to appear in proc.stdout."""
+    end_time = time.time() + timeout
+    buf = b""
+    fd = proc.stdout.fileno()
+    while time.time() < end_time:
+        remaining = end_time - time.time()
+        if remaining <= 0:
+            break
+        ready, _, _ = select.select([fd], [], [], remaining)
+        if ready:
+            try:
+                chunk = os.read(fd, 1024)
+            except OSError:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            if marker.encode() in buf:
+                return
+        if proc.poll() is not None:
+            stdout, stderr = proc.communicate()
+            raise RuntimeError(
+                f"Server exited early with code {proc.returncode}. stdout: {stdout.decode(errors='replace')}, stderr: {stderr.decode(errors='replace')}"
+            )
+    raise TimeoutError(
+        f"Server did not print startup marker within {timeout}s. stdout so far: {buf.decode(errors='replace')}"
+    )
+
+
+@contextmanager
+def managed_proc(proc):
+    """Ensure a subprocess is terminated/killed when exiting the context."""
+    try:
+        yield proc
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
 
 @pytest.fixture(
@@ -91,9 +139,6 @@ def proxy_server(request):
             stderr=subprocess.PIPE,
         )
         procs.append(proc_server)
-
-        # Wait for server to start
-        time.sleep(0.3)
 
         # Start sslocal
         proc_local = subprocess.Popen(

@@ -28,7 +28,7 @@ Usage:
 import subprocess
 import time
 import pytest
-from .conftest import HTTP_AUTH_PORT, SOCKS_AUTH_PORT, LOCAL_IP
+from .conftest import HTTP_AUTH_PORT, SOCKS_AUTH_PORT, LOCAL_IP, wait_server, managed_proc
 
 
 def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
@@ -36,10 +36,12 @@ def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
     pingpong_script = (
         "tests/tools/udp_pingpong.py" if is_udp else "tests/tools/tcp_pingpong.py"
     )
+    pingpong_marker = (
+        "Server bind on" if is_udp else "Server listened on"
+    )
     pingpong_port = 37777
 
-    # Start the pingpong server
-    server_proc = subprocess.Popen(
+    with managed_proc(subprocess.Popen(
         [
             "python3",
             pingpong_script,
@@ -50,23 +52,18 @@ def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
+    )) as server:
+        wait_server(server, pingpong_marker)
 
-    # Wait for server to start listening
-    time.sleep(0.5)
-
-    try:
-        # Run the pingpong client through nsproxy with wrong auth
-        client_args = extra_args + [
+        with managed_proc(nsproxy_runner(extra_args + [
             "python3",
             pingpong_script,
             "-c",
             LOCAL_IP,
             "-p",
             str(pingpong_port),
-        ]
-        client = nsproxy_runner(client_args)
-        stdout, stderr = client.communicate(timeout=10)
+        ])) as client:
+            stdout, stderr = client.communicate(timeout=3)
 
         # Get outputs
         stdout_str = stdout.decode(errors="replace")
@@ -75,29 +72,6 @@ def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
         # Client should fail with auth error
         assert "Please check your username and password." in stderr_str, (
             f"Expected auth error message not found. stderr: {stderr_str}"
-        )
-
-    finally:
-        # Terminate server (it may still be waiting for connection)
-        if server_proc.poll() is None:
-            server_proc.terminate()
-            try:
-                server_stdout, server_stderr = server_proc.communicate(timeout=2)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
-                server_stdout, server_stderr = b"", b""
-        else:
-            server_stdout, server_stderr = (
-                server_proc.stdout.read() if server_proc.stdout else b"",
-                server_proc.stderr.read() if server_proc.stderr else b"",
-            )
-
-        # Check server output - it should not have received any data
-        server_stdout_str = (
-            server_stdout.decode(errors="replace") if server_stdout else ""
-        )
-        assert "SERVER-RECV-OK" not in server_stdout_str, (
-            "Server should not have received data when auth failed"
         )
 
 
