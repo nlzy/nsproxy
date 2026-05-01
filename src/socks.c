@@ -56,6 +56,11 @@ enum {
     UDP_ASSOCIATE,
 };
 
+struct reladdr {
+    char addr[SERVNAME_MAXLEN + 1];
+    uint16_t port;
+};
+
 struct proxy_socks {
     struct proxy ops;
 
@@ -86,8 +91,7 @@ struct proxy_socks {
     size_t nbuffer;
 
     /* for udp forward only */
-    char *reladdr;
-    uint16_t relport;
+    struct reladdr *relay;
 };
 
 struct socks5hdr {
@@ -538,8 +542,12 @@ static void socks_handshake_input(struct proxy_socks *self)
 
         if (self->type == UDP_ASSOCIATE) {
             loglv(1, "UDP relay address: %s:%u", ad.addr, (unsigned)ad.port);
-            self->reladdr = strdup(ad.addr);
-            self->relport = ad.port;
+            if ((self->relay = calloc(1, sizeof(struct reladdr))) == NULL)
+                oom();
+            static_assert(sizeof(self->relay->addr) >= sizeof(ad.addr),
+                          "???");
+            strcpy(self->relay->addr, ad.addr);
+            self->relay->port = ad.port;
         }
 
         self->phase = PHASE_FORWARDING;
@@ -702,7 +710,7 @@ static void socks_put(struct proxy *proxy)
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     if (--self->refcnt == 0) {
         skutils_close_unreg(&self->info, self->loop, &self->sfd);
-        free(self->reladdr);
+        free(self->relay);
         free(self->addr);
         free(self);
     }
@@ -726,7 +734,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     struct proxy_socks *self;
     struct nspconf *conf = current_nspconf();
     uint16_t proxy_port;
-    int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM ;
+    int socktype = (type == UDP_FORWARD) ? SOCK_DGRAM : SOCK_STREAM;
 
     loglv(3, "socks_create_impl: creating a new struct conn_socks");
 
@@ -768,6 +776,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
     self->addr = strdup(addr);
     self->port = port;
+    self->relay = NULL;
 
     return self;
 }
@@ -788,16 +797,19 @@ struct proxy *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
                                void *userp, const char *addr, uint16_t port,
                                struct proxy *assoc)
 {
+    struct proxy_socks *self;
     struct proxy_socks *as = container_of(assoc, struct proxy_socks, ops);
-    struct proxy_socks *self
-        = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
 
+    if (as->phase != PHASE_FORWARDING || as->relay == NULL)
+        return NULL;
+
+    self = socks_create_impl(loop, userev, userp, UDP_FORWARD, addr, port);
     if (self == NULL)
         return NULL;
 
     /* create socket and bind to relay server */
-    self->sfd = skutils_connect(&self->info, as->reladdr, as->relport,
-                                SOCK_DGRAM);
+    self->sfd = skutils_connect(&self->info, as->relay->addr,
+                                as->relay->port, SOCK_DGRAM);
     if (self->sfd < 0) {
         free(self->addr);
         free(self);
