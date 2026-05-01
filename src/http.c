@@ -9,7 +9,7 @@
 
 #include "loop.h"
 #include "proxy.h"
-#include "skcomm.h"
+#include "skutils.h"
 
 enum {
     PHASE_SEND_REQUEST = 1,
@@ -66,16 +66,31 @@ static size_t base64_encode(char *output, size_t outlen,
 
 struct proxy_http {
     struct proxy ops;
-    struct sk_comm comm;
+
+    /* loop */
+    struct loopctx *loop;
+    struct epcb_ops epcb;
+
+    /* socket */
+    struct skinfo info;
+    int sfd;
+    unsigned int events;
+
+    /* rc */
+    int refcnt;
+
+    /* user */
     userev_fn_t *userev;
     void *userp;
-    char *addr; /* for proxied connection, not proxy server */
+
+    /* target */
+    char *addr;
     uint16_t port;
+
+    /* handshake */
     int phase;
-    /* for handshake only */
     char buffer[512];
     ssize_t nbuffer;
-    int refcnt;
 };
 
 static void http_handshake_perror(struct proxy_http *self, int err)
@@ -102,7 +117,7 @@ static void http_handshake_input(struct proxy_http *self)
        we can carefuly not to touch them
        Treat self->buffer as string, nerver forget set a '\0' after recv()
     */
-    nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
+    nread = recv(self->sfd, self->buffer + self->nbuffer,
                  sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
     if (nread <= 0) {
         if (nread == 0 || errno != EAGAIN) {
@@ -122,7 +137,7 @@ static void http_handshake_input(struct proxy_http *self)
         : nread;
 
     /* discard http response part in socket buffer */
-    nread = recv(self->comm.sfd, self->buffer + self->nbuffer, ndiscard, 0);
+    nread = recv(self->sfd, self->buffer + self->nbuffer, ndiscard, 0);
     if (nread != ndiscard) {
         fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, ndiscard);
         abort();
@@ -163,9 +178,9 @@ static void http_handshake_input(struct proxy_http *self)
     loglv(1, "Connected %s:%u/tcp", self->addr, (unsigned)self->port);
 
     /* good, handshake finish, listen and forward epoll event for user */
-    self->comm.events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd,
-                   self->comm.events, &self->comm.epcb);
+    self->events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
+                   &self->epcb);
 }
 
 /* epoll event callback
@@ -213,7 +228,7 @@ static void http_handshake_output(struct proxy_http *self)
         }
     }
 
-    nsent = send(self->comm.sfd, self->buffer,self->nbuffer, MSG_NOSIGNAL);
+    nsent = send(self->sfd, self->buffer,self->nbuffer, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (errno != EAGAIN) {
             http_handshake_perror(self, errno);
@@ -231,14 +246,13 @@ static void http_handshake_output(struct proxy_http *self)
 
     /* good, http request has been send */
     self->phase = PHASE_RECV_REPLY;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLIN,
-                   &self->comm.epcb);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN,
+                   &self->epcb);
 }
 
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
-    struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
-    struct proxy_http *self = container_of(comm, struct proxy_http, comm);
+    struct proxy_http *self = container_of(epcb, struct proxy_http, epcb);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -260,44 +274,37 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
 static int http_shutdown(struct proxy *proxy, int how, int rst)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-    return skcomm_common_shutdown(&self->comm, how, rst);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_shutdown(&self->info, self->loop, &self->sfd, how, rst);
 }
 
 /* impl for struct proxy :: evctl */
 static int http_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-
-    if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN;
-
-    return skcomm_common_evctl(&self->comm, event, enable);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_evctl(&self->info, self->loop, self->sfd, &self->events,
+                        &self->epcb, event, enable);
 }
 
 /* impl for struct proxy :: send */
 static ssize_t http_send(struct proxy *proxy, const char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-
-    /* handshake is not finished */
-    if (self->phase != PHASE_FORWARDING) {
-        return -EAGAIN;
-    }
-
-    return skcomm_common_send(&self->comm, data, size);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_send(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: recv */
 static ssize_t http_recv(struct proxy *proxy, char *data, size_t size)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
-
-    /* handshake is not finished */
-    if (self->phase != PHASE_FORWARDING) {
-        return -EAGAIN;
-    }
-
-    return skcomm_common_recv(&self->comm, data, size);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_recv(&self->info, self->sfd, data, size);
 }
 
 /* impl for struct proxy :: get */
@@ -312,7 +319,7 @@ static void http_put(struct proxy *proxy)
 {
     struct proxy_http *self = container_of(proxy, struct proxy_http, ops);
     if (--self->refcnt == 0) {
-        skcomm_common_close(&self->comm);
+        skutils_close_unreg(&self->info, self->loop, &self->sfd);
         free(self->addr);
         free(self);
     }
@@ -341,15 +348,15 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
     if ((self = calloc(1, sizeof(struct proxy_http))) == NULL)
         oom();
 
+    /* init */
     self->ops.ops = &http_ops;
+    self->loop = loop;
+    self->epcb.on_epoll_events = &http_epcb_events;
+    self->sfd = -1;
+    self->events = 0;
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
-
-    self->comm.epcb.on_epoll_events = &http_epcb_events;
-    self->comm.loop = loop;
-    self->comm.stype = SOCK_STREAM;
-    self->comm.sfd = -1;
 
     /* perform connect */
     loglv(3, "http_tcp_create: connecting %s:%u/tcp", addr, (unsigned)port);
@@ -359,17 +366,16 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
         return NULL;
     }
 
-    /* connect to proxy server */
-    if (skcomm_common_connect(&self->comm,
-                              conf->proxysrv, conf->proxyport) != 0) {
+    self->sfd = skutils_connect(&self->info, conf->proxysrv, conf->proxyport,
+                                SOCK_STREAM);
+    if (self->sfd < 0) {
         free(self);
         return NULL;
     }
 
     /* good, start handshake */
     self->phase = PHASE_SEND_REQUEST;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
-                   &self->comm.epcb);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT, &self->epcb);
 
     self->addr = strdup(addr);
     self->port = port;

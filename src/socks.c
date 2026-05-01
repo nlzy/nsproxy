@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include "loop.h"
-#include "skcomm.h"
+#include "skutils.h"
 
 /* socks handshake phases */
 enum {
@@ -46,35 +46,48 @@ static const char *rspstr[] = {
     [9] = "Unassigned",
 };
 
+/* - TCP_FORWARD: connected to proxy, for TCP only
+ * - UDP_FORWARD: connected to relay server, for UDP foward only
+ * - UDP_ASSOCIATE: connected to proxy, for UDP associate handshake only
+ */
 enum {
-    TCP_FORWARD,   /* TCP connection forwarding */
-    UDP_FORWARD,   /* UDP packet forwarding (client side) */
-    UDP_ASSOCIATE,   /* UDP association control connection */
+    TCP_FORWARD,
+    UDP_FORWARD,
+    UDP_ASSOCIATE,
 };
 
 struct proxy_socks {
     struct proxy ops;
-    struct sk_comm comm;
+
+    /* loop */
+    struct loopctx *loop;
+    struct epcb_ops epcb;
+
+    /* socket */
+    struct skinfo info;
+    int sfd;
+    unsigned int events;
+
+    /* rc */
+    int refcnt;
+
+    /* user */
     userev_fn_t *userev;
     void *userp;
-    char *addr; /* for proxied connection, not proxy server */
-    uint16_t port;
-    /* - TCP_FORWARD: connected to proxy, for both handshake and data foward
-     * - UDP_FORWARD: connected to relay server, for UDP foward only
-     * - UDP_ASSOCIATE: connected to proxy, for UDP associate handshake only
-     */
-    int type;
-    int phase;
 
-    /* for handshake only */
+    /* target */
+    char *addr;
+    uint16_t port;
+
+    /* handshake */
+    int type; /* TCP_FORWARD / UDP_FORWARD / UDP_ASSOCIATE */
+    int phase;
     char buffer[4096];
     size_t nbuffer;
 
     /* for udp forward only */
     char *reladdr;
     uint16_t relport;
-
-    int refcnt;
 };
 
 struct socks5hdr {
@@ -320,7 +333,7 @@ static void socks_handshake_output(struct proxy_socks *self)
         }
     }
 
-    nsent = send(self->comm.sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
+    nsent = send(self->sfd, self->buffer, self->nbuffer, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (errno != EAGAIN) {
             socks_handshake_perror(self, errno);
@@ -342,8 +355,7 @@ static void socks_handshake_output(struct proxy_socks *self)
         case PHASE_SEND_REQUEST: self->phase = PHASE_RECV_REPLY;  break;
     }
 
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLIN,
-                   &self->comm.epcb);
+    loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLIN, &self->epcb);
 }
 
 static void socks_handshake_input(struct proxy_socks *self)
@@ -351,7 +363,7 @@ static void socks_handshake_input(struct proxy_socks *self)
     ssize_t nread;
 
     if (self->phase == PHASE_RECV_METHOD) {
-        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
         if (nread <= 0) {
             if (nread == 0 || errno != EAGAIN) {
@@ -406,7 +418,7 @@ static void socks_handshake_input(struct proxy_socks *self)
     }
 
     if (self->phase == PHASE_RECV_AUTH) {
-        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer, 0);
         if (nread <= 0) {
             if (nread == 0 || errno != EAGAIN) {
@@ -448,7 +460,7 @@ static void socks_handshake_input(struct proxy_socks *self)
 
         /* use MSG_PEEK here, if some application layer data has been returned,
            we can carefuly not to touch them */
-        nread = recv(self->comm.sfd, self->buffer + self->nbuffer,
+        nread = recv(self->sfd, self->buffer + self->nbuffer,
                      sizeof(self->buffer) - self->nbuffer - 1, MSG_PEEK);
         if (nread <= 0) {
             if (nread == 0 || errno != EAGAIN) {
@@ -483,7 +495,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         } while (0);
 
         /* discard socks handshake reply part in socket buffer */
-        nread = recv(self->comm.sfd, self->buffer + self->nbuffer, s, 0);
+        nread = recv(self->sfd, self->buffer + self->nbuffer, s, 0);
         if (nread != s) {
             fprintf(stderr, "recv() returned %zd, expected %zd\n", nread, s);
             abort();
@@ -539,20 +551,19 @@ static void socks_handshake_input(struct proxy_socks *self)
 
     /* when control flow reach here, it should finish a step of input phase */
     if (self->phase == PHASE_SEND_REQUEST || self->phase == PHASE_SEND_AUTH) {
-        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd, EPOLLOUT,
-                       &self->comm.epcb);
+        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, EPOLLOUT,
+                       &self->epcb);
     } else {
         assert(self->phase == PHASE_FORWARDING);
-        self->comm.events = EPOLLOUT | EPOLLIN;
-        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_MOD, self->comm.sfd,
-                       self->comm.events, &self->comm.epcb);
+        self->events = EPOLLOUT | EPOLLIN;
+        loop_epoll_ctl(self->loop, EPOLL_CTL_MOD, self->sfd, self->events,
+                       &self->epcb);
     }
 }
 
 static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
-    struct sk_comm *comm = container_of(epcb, struct sk_comm, epcb);
-    struct proxy_socks *self = container_of(comm, struct proxy_socks, comm);
+    struct proxy_socks *self = container_of(epcb, struct proxy_socks, epcb);
 
     /* we don't care events after handshaked, just forward event to user */
     if (self->phase == PHASE_FORWARDING) {
@@ -576,18 +587,19 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
 static int socks_shutdown(struct proxy *proxy, int how, int rst)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
-    return skcomm_common_shutdown(&self->comm, how, rst);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_shutdown(&self->info, self->loop, &self->sfd, how, rst);
 }
 
 /* impl for struct proxy :: evctl */
 static int socks_evctl(struct proxy *proxy, unsigned int event, int enable)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
-
-    if (self->phase != PHASE_FORWARDING)
-        return -EAGAIN;
-
-    return skcomm_common_evctl(&self->comm, event, enable);
+    return self->phase != PHASE_FORWARDING
+        ? -EAGAIN
+        : skutils_evctl(&self->info, self->loop, self->sfd, &self->events,
+                        &self->epcb, event, enable); 
 }
 
 /* impl for struct proxy :: send */
@@ -630,9 +642,9 @@ static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
         msg.msg_iov = iov;
         msg.msg_iovlen = iovlen;
 
-        return skcomm_common_sendmsg(&self->comm, &msg);
+        return skutils_sendmsg(&self->info, self->sfd, &msg);
     } else {
-        return skcomm_common_send(&self->comm, data, size);
+        return skutils_send(&self->info, self->sfd, data, size);
     }
 }
 
@@ -647,7 +659,7 @@ static ssize_t socks_recv(struct proxy *proxy, char *data, size_t size)
         return -EAGAIN;
     }
 
-    nread = skcomm_common_recv(&self->comm, data, size);
+    nread = skutils_recv(&self->info, self->sfd, data, size);
     if (nread < 0)
         return nread;
 
@@ -689,7 +701,7 @@ static void socks_put(struct proxy *proxy)
 {
     struct proxy_socks *self = container_of(proxy, struct proxy_socks, ops);
     if (--self->refcnt == 0) {
-        skcomm_common_close(&self->comm);
+        skutils_close_unreg(&self->info, self->loop, &self->sfd);
         free(self->reladdr);
         free(self->addr);
         free(self);
@@ -721,16 +733,16 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
     if ((self = calloc(1, sizeof(struct proxy_socks))) == NULL)
         oom();
 
+    /* init */
     self->ops.ops = &socks_ops;
+    self->loop = loop;
+    self->epcb.on_epoll_events = &socks_epcb_events;
+    self->sfd = -1;
+    self->events = 0;
     self->refcnt = 1;
     self->userev = userev;
     self->userp = userp;
     self->type = type;
-
-    self->comm.epcb.on_epoll_events = &socks_epcb_events;
-    self->comm.loop = loop;
-    self->comm.stype = socktype;
-    self->comm.sfd = -1;
 
     /* perform connect */
     loglv(3, "socks_create_impl: connecting %s:%u/%s",
@@ -743,14 +755,15 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
     if (type != UDP_FORWARD) {
         /* handshake with proxy server */
-        if (skcomm_common_connect(&self->comm,
-                                  conf->proxysrv, conf->proxyport) != 0) {
+        self->sfd = skutils_connect(&self->info, conf->proxysrv,
+                                    conf->proxyport, socktype);
+        if (self->sfd < 0) {
             free(self);
             return NULL;
         }
         self->phase = PHASE_SEND_METHOD;
-        loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd, EPOLLOUT,
-                       &self->comm.epcb);
+        loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, EPOLLOUT,
+                       &self->epcb);
     }
 
     self->addr = strdup(addr);
@@ -762,7 +775,7 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 /* create a tcp connection
    this connection is proxied via socks server */
 struct proxy *socks_tcp_create(struct loopctx *loop, userev_fn_t *userev,
-                                void *userp, const char *addr, uint16_t port)
+                               void *userp, const char *addr, uint16_t port)
 {
     struct proxy_socks *self
         = socks_create_impl(loop, userev, userp, TCP_FORWARD, addr, port);
@@ -783,19 +796,18 @@ struct proxy *socks_udp_create(struct loopctx *loop, userev_fn_t *userev,
         return NULL;
 
     /* create socket and bind to relay server */
-    if (skcomm_common_connect(&self->comm, as->reladdr, as->relport) == -1) {
+    self->sfd = skutils_connect(&self->info, as->reladdr, as->relport,
+                                SOCK_DGRAM);
+    if (self->sfd < 0) {
         free(self->addr);
         free(self);
         return NULL;
     }
-
-    /* no need to handshake with relay, start forward packet now */
-    loglv(1, "Forwarding %s:%u/udp", addr, (unsigned)port);
     self->phase = PHASE_FORWARDING;
 
-    self->comm.events = EPOLLOUT | EPOLLIN;
-    loop_epoll_ctl(self->comm.loop, EPOLL_CTL_ADD, self->comm.sfd,
-                   self->comm.events, &self->comm.epcb);
+    self->events = EPOLLOUT | EPOLLIN;
+    loop_epoll_ctl(self->loop, EPOLL_CTL_ADD, self->sfd, self->events,
+                   &self->epcb);
 
     return &self->ops;
 }
