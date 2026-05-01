@@ -338,10 +338,8 @@ struct proxy *http_tcp_create(struct loopctx *loop, userev_fn_t *userev,
 
     loglv(3, "http_tcp_create: creating a new struct conn_http");
 
-    if ((self = calloc(1, sizeof(struct proxy_http))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((self = calloc(1, sizeof(struct proxy_http))) == NULL)
+        oom();
 
     self->ops.ops = &http_ops;
     self->refcnt = 1;

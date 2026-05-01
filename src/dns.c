@@ -186,10 +186,8 @@ static ssize_t tcpdns_send(struct proxy *proxy, const char *data, size_t size)
         return -E2BIG; /* query too large */
 
     /* init worker */
-    if ((worker = calloc(1, sizeof(struct tcpdns_worker))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((worker = calloc(1, sizeof(struct tcpdns_worker))) == NULL)
+        oom();
     worker->master = master;
     sizebe = htobe16(size);
     memcpy(worker->buffer, &sizebe, 2);
@@ -312,10 +310,8 @@ struct proxy *tcpdns_create(struct loopctx *loop, userev_fn_t *userev,
 
     loglv(3, "tcpdns_create: creating a new struct conn_tcpdns");
 
-    if ((master = calloc(1, sizeof(struct proxy_tcpdns))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((master = calloc(1, sizeof(struct proxy_tcpdns))) == NULL)
+        oom();
 
     master->ops.ops = &dns_ops;
     master->evfdepcb.on_epoll_events = &tcpdns_master_epcb_events;

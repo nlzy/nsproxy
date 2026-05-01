@@ -66,10 +66,8 @@ void loop_init(struct loopctx **loop, int tunfd, int sigfd)
     struct loopctx *p;
     struct epoll_event ev;
 
-    if ((p = malloc(sizeof(struct loopctx))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((p = malloc(sizeof(struct loopctx))) == NULL)
+        oom();
 
     if ((p->epfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
         perror("epoll_create1()");

@@ -84,10 +84,8 @@ static void tun_input(struct netif *tunif)
     ssize_t nread;
     struct pbuf *p;
 
-    if ((p = pbuf_alloc(PBUF_RAW, NSPROXY_MTU, PBUF_RAM)) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((p = pbuf_alloc(PBUF_RAW, NSPROXY_MTU, PBUF_RAM)) == NULL)
+        oom();
 
     if ((nread = read(core->tunfd, p->payload, p->len)) == -1) {
         perror("read()");
@@ -171,10 +169,8 @@ static err_t tunif_init(struct netif *netif)
 static struct tcp_forward *tcp_forward_create(struct corectx *core)
 {
     struct tcp_forward *fwd = calloc(1, sizeof(*fwd));
-    if (fwd == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if (fwd == NULL)
+        oom();
 
     fwd->core = core;
     fwd->gc = NSPROXY_TCP_IDLE_TIMEOUT;
@@ -232,10 +228,8 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
 static struct udp_forward *udp_forward_create(struct corectx *core)
 {
     struct udp_forward *fwd = calloc(1, sizeof(*fwd));
-    if (fwd == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if (fwd == NULL)
+        oom();
 
     fwd->core = core;
     fwd->gc = NSPROXY_UDP_IDLE_TIMEOUT;
@@ -307,10 +301,8 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
         } else {
             struct pbuf *p;
             err_t err;
-            if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
-                fprintf(stderr, "Out of Memory.\n");
-                abort();
-            }
+            if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL)
+                oom();
             err = udp_send(pcb, p);
             pbuf_free(p);
             return err;
@@ -386,10 +378,8 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
         ssize_t nread;
         struct pbuf *p;
 
-        if ((p = pbuf_alloc(PBUF_RAW, tcp_mss(pcb), PBUF_RAM)) == NULL) {
-            fprintf(stderr, "Out of Memory.\n");
-            abort();
-        }
+        if ((p = pbuf_alloc(PBUF_RAW, tcp_mss(pcb), PBUF_RAM)) == NULL)
+            oom();
 
         nread = proxy_recv(proxy, p->payload, p->len);
         if (nread == -EAGAIN) {
@@ -412,7 +402,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
 
             /* send to application and enqueue to fwd->sndq */
             if (tcp_write(pcb, p->payload, nread, 0) != ERR_OK) {
-                fprintf(stderr, "Out of Memory.\n");
+                loglv(3, "tcp_proxy_input: tcp_write() failed");
                 abort();
             }
             /* p is moved into fwd->sndq, don't free */
@@ -824,10 +814,8 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     struct itimerspec its = { .it_interval.tv_nsec = 250000000,
                               .it_value.tv_nsec = 250000000 };
 
-    if ((p = calloc(1, sizeof(struct corectx))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((p = calloc(1, sizeof(struct corectx))) == NULL)
+        oom();
 
     p->tunfd = tunfd;
     p->loop = loop;

@@ -718,10 +718,8 @@ socks_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
     loglv(3, "socks_create_impl: creating a new struct conn_socks");
 
-    if ((self = calloc(1, sizeof(struct proxy_socks))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((self = calloc(1, sizeof(struct proxy_socks))) == NULL)
+        oom();
 
     self->ops.ops = &socks_ops;
     self->refcnt = 1;

@@ -30,6 +30,14 @@
             fprintf(stderr, "[nsproxy] " str "\n", ##__VA_ARGS__); \
     } while (0)
 
+/* Memory footprint of nsproxy should be very small, allocation failures are
+   not expected, so abort() here. */
+#define oom()                               \
+    do {                                    \
+        fprintf(stderr, "Out of Memory\n"); \
+        abort();                            \
+    } while (0)
+
 #define current_nspconf() (nsproxy_current_nspconf__)
 
 #ifndef static_assert

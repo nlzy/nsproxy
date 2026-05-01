@@ -90,10 +90,8 @@ direct_create_impl(struct loopctx *loop, userev_fn_t *userev, void *userp,
 
     loglv(3, "direct_create_internel: creating a new struct conn_direct");
 
-    if ((self = calloc(1, sizeof(struct proxy_direct))) == NULL) {
-        fprintf(stderr, "Out of Memory.\n");
-        abort();
-    }
+    if ((self = calloc(1, sizeof(struct proxy_direct))) == NULL)
+        oom();
 
     self->ops.ops = &direct_ops;
     self->refcnt = 1;
