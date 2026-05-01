@@ -803,7 +803,7 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
-void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
+int core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 {
     struct corectx *p;
     struct epoll_event ev;
@@ -823,12 +823,12 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     /* lwip required call to some functions periodically every 250ms */
     if ((p->timerfd = timerfd_create(CLOCK_MONOTONIC,
                                      TFD_NONBLOCK | TFD_CLOEXEC)) == -1) {
-        perror("timerfd_create()");
-        abort();
+        loglv(0, "core_init: timerfd_create() failed: %s", strerror(errno));
+        goto err_free_p;
     }
     if ((timerfd_settime(p->timerfd, 0, &its, NULL)) == -1) {
-        perror("timerfd_settime()");
-        abort();
+        loglv(0, "core_init: timerfd_settime() failed: %s", strerror(errno));
+        goto err_close_timerfd;
     }
 
     /* register tunfd and timerfd to epoll */
@@ -870,12 +870,17 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
     p->assoccd = 0;
 
     *core = p;
+    return 0;
+
+err_close_timerfd:
+    close(p->timerfd);
+err_free_p:
+    free(p);
+    return -1;
 }
 
 void core_deinit(struct corectx *core)
 {
-    int ret;
-
     while (core->tcplst)
         tcp_forward_destroy(core->tcplst, 0);
     while (core->udplst)
@@ -886,10 +891,8 @@ void core_deinit(struct corectx *core)
 
     netif_remove(&core->tunif);
 
-    if ((ret = close(core->timerfd)) == -1) {
-        perror("close(core->timerfd)");
-        abort();
-    }
+    if (close(core->timerfd))
+        loglv(0, "core_deinit: timerfd close() failed: %s", strerror(errno));
 
     free(core);
 }

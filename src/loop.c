@@ -61,7 +61,7 @@ static int sigfd_handler(struct loopctx *loop)
     }
 }
 
-void loop_init(struct loopctx **loop, int sigfd)
+int loop_init(struct loopctx **loop, int sigfd)
 {
     struct loopctx *p;
     struct epoll_event ev;
@@ -70,21 +70,28 @@ void loop_init(struct loopctx **loop, int sigfd)
         oom();
 
     if ((p->epfd = epoll_create1(EPOLL_CLOEXEC)) == -1) {
-        perror("epoll_create1()");
-        abort();
+        loglv(0, "loop_init: epoll_create1() failed: %s", strerror(errno));
+        goto err_free_p;
     }
 
     p->sigfd = sigfd;
     ev.events = EPOLLIN;
     ev.data.ptr = &p->sigfd;
     if (epoll_ctl(p->epfd, EPOLL_CTL_ADD, sigfd, &ev) == -1) {
-        perror("epoll_ctl()");
-        abort();
+        loglv(0, "loop_init: epoll_ctl(sigfd) failed: %s", strerror(errno));
+        goto err_close_epfd;
     }
 
     loglv(3, "loop_init: lwIP and event loop initialized");
 
     *loop = p;
+    return 0;
+
+err_close_epfd:
+    close(p->epfd);
+err_free_p:
+    free(p);
+    return -1;
 }
 
 void loop_deinit(struct loopctx *loop)

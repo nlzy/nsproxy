@@ -473,8 +473,14 @@ static int parent(int sk)
     }
     close(sk);
 
-    loop_init(&loop, chdsigfd);
-    core_init(&core, loop, tunfd);
+    if (loop_init(&loop, chdsigfd) == -1) {
+        fprintf(stderr, "Error: init event loop module failed");
+        exit(EXIT_FAILURE);
+    }
+    if (core_init(&core, loop, tunfd) == -1) {
+        fprintf(stderr, "Error: init core forwarding module failed");
+        exit(EXIT_FAILURE);
+    }
 
     loglv(3, "parent: starting event loop");
     rc = loop_run(loop);
