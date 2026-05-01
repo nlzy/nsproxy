@@ -760,6 +760,15 @@ static void core_gc_tmr(struct corectx *core)
     }
 }
 
+static void core_reassoc_tmr(struct corectx *core)
+{
+    struct loopctx *loop = core->loop;
+    if (current_nspconf()->proxytype == PROXY_SOCKS5 && core->udpassoc == NULL
+        && core->assocready == 0) {
+        core->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, core);
+    }
+}
+
 static void core_tunfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct corectx *core = container_of(epcb, struct corectx, tunepcb);
@@ -778,6 +787,7 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
     while (expired--) {
         if (core->timerepoch % 4 == 0) {
             core_gc_tmr(core);
+            core_reassoc_tmr(core);
             ip_reass_tmr();
             ip6_reass_tmr();
             nd6_tmr();
