@@ -65,6 +65,8 @@ struct corectx {
     /* tracking all forward instances */
     struct tcp_forward *tcplst;
     struct udp_forward *udplst;
+
+    struct proxy *udpassoc;
 };
 
 static void tun_input(struct netif *tunif)
@@ -323,6 +325,26 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
     }
 }
 
+static void udp_assoc_io_event(void *userp, unsigned int events)
+{
+    struct corectx *core = userp;
+
+    if (events == ~0u) {
+        proxy_put(core->udpassoc);
+        core->udpassoc = NULL;
+        return;
+    }
+
+    if (events & EPOLLOUT) {
+        proxy_evctl(core->udpassoc, EPOLLOUT, 0);
+    }
+
+    if ((events & (EPOLLIN | EPOLLERR | EPOLLHUP))) {
+        proxy_put(core->udpassoc);
+        core->udpassoc = NULL;
+    }
+}
+
 void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 {
     struct corectx *p;
@@ -378,6 +400,9 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 
     loglv(3, "core_init: corectx and lwip initialized");
 
+    if (current_nspconf()->proxytype == PROXY_SOCKS5)
+        p->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, p);
+
     *core = p;
 }
 
@@ -389,6 +414,9 @@ void core_deinit(struct corectx *core)
         tcp_forward_destroy(core->tcplst, 0);
     while (core->udplst)
         udp_forward_destroy(core->udplst);
+
+    if (core->udpassoc)
+        proxy_put(core->udpassoc);
 
     netif_remove(&core->tunif);
 
@@ -586,7 +614,7 @@ void core_udp_new(struct udp_pcb *pcb)
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
     if (conf->proxytype == PROXY_SOCKS5) {
         fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
-                                      ip, pcb->local_port);
+                                      ip, pcb->local_port, core->udpassoc);
     } else if (conf->proxytype == PROXY_HTTP) {
         /* let udp_lwip_received() drop packet */
         fwd->proxy = NULL;
