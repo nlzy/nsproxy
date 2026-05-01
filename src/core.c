@@ -263,6 +263,10 @@ static void udp_forward_destroy(struct udp_forward *fwd)
         fwd->next->prev = fwd->prev;
     }
 
+    /* free receive queue */
+    while (fwd->nrcvq --> 0) /* out of tricks, it's time to bite a lighter */
+        pbuf_free(fwd->rcvq[fwd->nrcvq]);
+
     /* free pcb */
     if (fwd->pcb)
         udp_remove(fwd->pcb);
@@ -271,16 +275,11 @@ static void udp_forward_destroy(struct udp_forward *fwd)
     if (fwd->proxy)
         proxy_put(fwd->proxy);
 
-    /* free receive queue */
-    while (fwd->nrcvq --> 0) { /* out of tricks, it's time to bite a lighter */
-        pbuf_free(fwd->rcvq[fwd->nrcvq]);
-    }
-
     free(fwd);
 }
 
 /* try to recv data from proxy server and send to application */
-static void udp_proxy_input(struct udp_forward *fwd)
+static err_t udp_proxy_input(struct udp_forward *fwd)
 {
     struct proxy *proxy = fwd->proxy;
     struct udp_pcb *pcb = fwd->pcb;
@@ -293,34 +292,34 @@ static void udp_proxy_input(struct udp_forward *fwd)
     for (;;) {
         char buffer[65535];
         ssize_t nread;
-        struct pbuf *p;
 
         nread = proxy_recv(proxy, buffer, sizeof(buffer));
-
-        if (nread < 0) {
+        if (nread == -EAGAIN) {
             proxy_evctl(proxy, EPOLLIN, 1);
-            return;
+            return ERR_OK;
+        } else if (nread < 0) {
+            loglv(3, "udp_proxy_input: proxy error, force destroy fwd "
+                     "reason: %s", strerror(-nread));
+            udp_forward_destroy(fwd);
+            return ERR_ABRT;
+        } else {
+            struct pbuf *p;
+            err_t err;
+            if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
+                fprintf(stderr, "Out of Memory.\n");
+                abort();
+            }
+            err = udp_send(pcb, p);
+            pbuf_free(p);
+            return err;
         }
-
-        if ((p = pbuf_alloc_reference(buffer, nread, PBUF_REF)) == NULL) {
-            fprintf(stderr, "Out of Memory.\n");
-            abort();
-        }
-
-        if (udp_send(pcb, p) != ERR_OK) {
-            fprintf(stderr, "Out of Memory.\n");
-            abort();
-        }
-
-        pbuf_free(p);
     }
 }
 
 /* try to send data to proxy server, data already in fwd->rcvq */
-static void udp_proxy_output(struct udp_forward *fwd)
+static err_t udp_proxy_output(struct udp_forward *fwd)
 {
     struct proxy *proxy = fwd->proxy;
-    char buffer[65535];
     ssize_t i, nsent;
     struct pbuf *p;
 
@@ -335,16 +334,21 @@ static void udp_proxy_output(struct udp_forward *fwd)
         if (p->len == p->tot_len) {
             nsent = proxy_send(proxy, p->payload, p->tot_len);
         } else {
+            char buffer[65536];
             pbuf_copy_partial(p, buffer, p->tot_len, 0);
             nsent = proxy_send(proxy, buffer, p->tot_len);
         }
-
-        if (nsent == -EAGAIN)
+        if (nsent == -EAGAIN) {
             break;
-
-        /* Succeed. Or failed other than EAGAIN which would not handled in UDP.
-         */
-        pbuf_free(p);
+        } else if (nsent < 0) {
+            loglv(3, "udp_proxy_output: proxy error, force destroy fwd, "
+                     "reason: %s", strerror(-nsent));
+            udp_forward_destroy(fwd);
+            return ERR_ABRT;
+        } else {
+            /* succeed */
+            pbuf_free(p);
+        }
     }
 
     fwd->nrcvq -= i;
@@ -356,6 +360,8 @@ static void udp_proxy_output(struct udp_forward *fwd)
     } else {
         proxy_evctl(proxy, EPOLLOUT, 0);
     }
+
+    return ERR_OK;
 }
 
 /* try to recv data from proxy server and send to application
@@ -576,27 +582,20 @@ static void tcp_lwip_err(void *arg, err_t err)
 static void udp_assoc_io_event(void *userp, unsigned int events)
 {
     struct corectx *core = userp;
+    struct udp_forward *fwd;
 
-    if (events == ~0u) {
+    if (events != EPOLLOUT) {
+        /* must be some error */
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
         core->assocready = 0;
-        return;
-    }
-
-    if (events & EPOLLOUT) {
-        struct udp_forward *p;
+        while (core->udplst)
+            udp_forward_destroy(core->udplst);
+    } else {
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
         core->assocready = 1;
-        for (p = core->udplst; p; p = p->next) {
-            udp_proxy_output(p);
-        }
-    }
-
-    if ((events & (EPOLLIN | EPOLLERR | EPOLLHUP))) {
-        proxy_put(core->udpassoc);
-        core->udpassoc = NULL;
-        core->assocready = 0;
+        for (fwd = core->udplst; fwd; fwd = fwd->next)
+            udp_proxy_output(fwd);
     }
 }
 
@@ -604,24 +603,19 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
 static void udp_proxy_io_event(void *userp, unsigned int events)
 {
     struct udp_forward *fwd = userp;
+    err_t err = ERR_OK;
 
-    /* Fatal errors (e.g. ENOMEM) already handled in the impl of proxy.
-       Other failures (e.g. ECONNABORTED) handled here, others part of this
-       program could simplely retry when IO error occured.
-    */
-    if (events & EPOLLERR) {
-        loglv(3, "udp_proxy_io_event: proxy error, force destroy fwd");
+    /* UDP no need to handshake, should not report this value */
+    assert(events != ~0u);
+
+    if (!err && (events & EPOLLIN))
+        err = udp_proxy_input(fwd);
+
+    if (!err && (events & EPOLLOUT))
+        err = udp_proxy_output(fwd);
+
+    if (err || (events & EPOLLERR))
         udp_forward_destroy(fwd);
-        return;
-    }
-
-    if (events & EPOLLIN) {
-        udp_proxy_input(fwd);
-    }
-
-    if (events & EPOLLOUT) {
-        udp_proxy_output(fwd);
-    }
 }
 
 /* handle events occured in connection connected to proxy server */
