@@ -70,9 +70,10 @@ def recv_exact_eof(sock):
     return bytes(data)
 
 
-def run_server(bind_addr, port):
+def run_server(bind_addr, port, ipv6=False):
     """Run as server"""
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    family = socket.AF_INET6 if ipv6 else socket.AF_INET
+    server_sock = socket.socket(family, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.setsockopt(
         socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 10)
@@ -111,9 +112,10 @@ def run_server(bind_addr, port):
     server_sock.close()
 
 
-def run_client(server_addr, port):
+def run_client(server_addr, port, ipv6=False):
     """Run as client"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    family = socket.AF_INET6 if ipv6 else socket.AF_INET
+    sock = socket.socket(family, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 10))
     sock.settimeout(1.0)
     sock.connect((server_addr, port))
@@ -168,13 +170,16 @@ Examples:
     parser.add_argument(
         "-p", "--port", type=int, default=37777, help="Port number (default: 37777)"
     )
+    parser.add_argument(
+        "-6", "--ipv6", action="store_true", help="Use IPv6"
+    )
 
     args = parser.parse_args()
 
     if args.server:
-        run_server(args.server, args.port)
+        run_server(args.server, args.port, args.ipv6)
     else:
-        run_client(args.client, args.port)
+        run_client(args.client, args.port, args.ipv6)
 
 
 if __name__ == "__main__":

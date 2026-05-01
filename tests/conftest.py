@@ -42,7 +42,20 @@ def get_local_ip():
     return IP
 
 
+def get_local_ipv6():
+    s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    try:
+        s.connect(("2001:db8::1", 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        IP = "::1"
+    finally:
+        s.close()
+    return IP
+
+
 LOCAL_IP = get_local_ip()
+LOCAL_IPV6 = get_local_ipv6()
 
 
 def wait_server(proc, marker, timeout=2):

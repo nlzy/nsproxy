@@ -45,9 +45,10 @@ import argparse
 DATA_SIZE = 1000  # 1,000 bytes for UDP
 
 
-def run_server(bind_addr, port):
+def run_server(bind_addr, port, ipv6=False):
     """Run as server"""
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    family = socket.AF_INET6 if ipv6 else socket.AF_INET
+    server_sock = socket.socket(family, socket.SOCK_DGRAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((bind_addr, port))
     print(f"Server bind on {bind_addr}:{port}", flush=True)
@@ -77,9 +78,10 @@ def run_server(bind_addr, port):
     server_sock.close()
 
 
-def run_client(server_addr, port):
+def run_client(server_addr, port, ipv6=False):
     """Run as client"""
-    client_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    family = socket.AF_INET6 if ipv6 else socket.AF_INET
+    client_sock = socket.socket(family, socket.SOCK_DGRAM)
     client_sock.settimeout(1.0)
 
     # diagram.1: Send 'c' to server
@@ -133,13 +135,16 @@ Examples:
     parser.add_argument(
         "-p", "--port", type=int, default=37777, help="Port number (default: 37777)"
     )
+    parser.add_argument(
+        "-6", "--ipv6", action="store_true", help="Use IPv6"
+    )
 
     args = parser.parse_args()
 
     if args.server:
-        run_server(args.server, args.port)
+        run_server(args.server, args.port, args.ipv6)
     else:
-        run_client(args.client, args.port)
+        run_client(args.client, args.port, args.ipv6)
 
 
 if __name__ == "__main__":
