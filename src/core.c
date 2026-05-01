@@ -67,7 +67,10 @@ struct corectx {
     struct udp_forward *udplst;
 
     struct proxy *udpassoc;
+    uint8_t assocready;
 };
+
+static void udp_proxy_output(struct udp_forward *fwd);
 
 static void tun_input(struct netif *tunif)
 {
@@ -332,16 +335,23 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
     if (events == ~0u) {
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
+        core->assocready = 0;
         return;
     }
 
     if (events & EPOLLOUT) {
+        struct udp_forward *p;
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
+        core->assocready = 1;
+        for (p = core->udplst; p; p = p->next) {
+            udp_proxy_output(p);
+        }
     }
 
     if ((events & (EPOLLIN | EPOLLERR | EPOLLHUP))) {
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
+        core->assocready = 0;
     }
 }
 
@@ -400,8 +410,16 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
 
     loglv(3, "core_init: corectx and lwip initialized");
 
-    if (current_nspconf()->proxytype == PROXY_SOCKS5)
+    if (current_nspconf()->proxytype == PROXY_SOCKS5) {
         p->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, p);
+        p->assocready = 0;
+    } else if (current_nspconf()->proxytype == PROXY_DIRECT) {
+        p->udpassoc = NULL;
+        p->assocready = 1;
+    } else {
+        p->udpassoc = NULL;
+        p->assocready = 0;
+    }
 
     *core = p;
 }
@@ -542,21 +560,11 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                               const ip_addr_t *addr, u16_t port)
 {
     struct udp_forward *fwd = arg;
+    struct corectx *core = fwd->core;
     struct proxy *proxy = fwd->proxy;
 
     if (!p) {
         /* should not happen */
-        udp_forward_destroy(fwd);
-        return;
-    }
-
-    if (!proxy) {
-        /* lost connection to proxy server,
-           reply ICMP port unreach message, and release udp pcb
-        */
-        pbuf_header_force(p, (s16_t)(ip_current_header_tot_len() + UDP_HLEN));
-        icmp_port_unreach(ip_current_is_v6(), p);
-        pbuf_free(p);
         udp_forward_destroy(fwd);
         return;
     }
@@ -570,13 +578,14 @@ static void udp_lwip_received(void *arg, struct udp_pcb *pcb, struct pbuf *p,
         fwd->rcvq[fwd->nrcvq++] = p;
     }
 
-    udp_proxy_output(fwd);
+    if (core->assocready)
+        udp_proxy_output(fwd);
 }
 
 /* called by lwip when a udp connection is create
    this function create a connection to proxy server and set lwip udp_recv() up
 */
-void core_udp_new(struct udp_pcb *pcb)
+err_t core_udp_new(struct udp_pcb *pcb)
 {
     struct corectx *core = ip_current_netif()->state;
     struct nspconf *conf = current_nspconf();
@@ -600,7 +609,7 @@ void core_udp_new(struct udp_pcb *pcb)
         else
             fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                            conf->dnssrv, conf->dnsport);
-        return;
+        return ERR_OK;
     }
 
     /* forward gateway to host namespace  */
@@ -608,7 +617,7 @@ void core_udp_new(struct udp_pcb *pcb)
         const char *localhost = IP_IS_V4(&pcb->local_ip) ? "127.0.0.1" : "::1";
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                        localhost, pcb->local_port);
-        return;
+        return ERR_OK;
     }
 
     ipaddr_ntoa_r(&pcb->local_ip, ip, sizeof(ip));
@@ -616,12 +625,13 @@ void core_udp_new(struct udp_pcb *pcb)
         fwd->proxy = socks_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                       ip, pcb->local_port, core->udpassoc);
     } else if (conf->proxytype == PROXY_HTTP) {
-        /* let udp_lwip_received() drop packet */
-        fwd->proxy = NULL;
+        udp_forward_destroy(fwd);
+        return ERR_ABRT;
     } else {
         fwd->proxy = direct_udp_create(core->loop, &udp_proxy_io_event, fwd,
                                        ip, pcb->local_port);
     }
+    return ERR_OK;
 }
 
 /* try to recv data from proxy server and send to application
