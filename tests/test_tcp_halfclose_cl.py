@@ -56,48 +56,48 @@ def _run_halfclose_cl_test(nsproxy_runner, extra_args):
             "-p",
             str(HALFCLOSE_PORT),
         ])) as client:
-            stdout, stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=3)
 
         # Get outputs
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
+        cl_out = cl_stdout.decode(errors="replace")
+        cl_err = cl_stderr.decode(errors="replace")
 
         # Immediately kill server after client finishes
         if server.poll() is None:
             server.kill()
 
-        server_stdout, server_stderr = server.communicate(timeout=3)
-        server_stdout_str = server_stdout.decode(errors="replace")
-        server_stderr_str = server_stderr.decode(errors="replace")
+        sv_stdout, sv_stderr = server.communicate(timeout=3)
+        sv_out = sv_stdout.decode(errors="replace")
+        sv_err = sv_stderr.decode(errors="replace")
 
         # Assertions in order of data exchange:
         # 1. Client sends 'c' -> Server receives -> Server sends 's'
-        assert "SERVER-FIRST-RECV-OK" in server_stdout_str, (
-            f"Server did not receive first chunk. stderr: {server_stderr_str}"
+        assert "SERVER-FIRST-RECV-OK" in sv_out, (
+            f"Server did not receive first chunk. stderr: {sv_err}"
         )
 
         # 2. Client receives 's'
-        assert "CLIENT-FIRST-RECV-OK" in stdout_str, (
-            f"Client did not receive first chunk. stderr: {stderr_str}"
+        assert "CLIENT-FIRST-RECV-OK" in cl_out, (
+            f"Client did not receive first chunk. stderr: {cl_err}"
         )
 
         # 3. Client sends 'C' and shutdown WR (sends FIN)
         #    Server receives 'C' and must detect FIN (not RST) to confirm half-close
-        assert "SERVER-FINAL-RECV-OK" in server_stdout_str, (
-            f"Server did not receive second chunk or detect half-close (FIN). stderr: {server_stderr_str}"
+        assert "SERVER-FINAL-RECV-OK" in sv_out, (
+            f"Server did not receive second chunk or detect half-close (FIN). stderr: {sv_err}"
         )
 
         # 4. Client receives 'S' and must detect server's FIN (not RST) to confirm full-close
-        assert "CLIENT-FINAL-RECV-OK" in stdout_str, (
-            f"Client did not receive second chunk or detect close (FIN). stderr: {stderr_str}"
+        assert "CLIENT-FINAL-RECV-OK" in cl_out, (
+            f"Client did not receive second chunk or detect close (FIN). stderr: {cl_err}"
         )
 
         # 5. Both processes exit successfully
         assert server.returncode == 0, (
-            f"Server exited with error code {server.returncode}. stderr: {server_stderr_str}"
+            f"Server exited with error code {server.returncode}. stderr: {sv_err}"
         )
         assert client.returncode == 0, (
-            f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
+            f"Client exited with error code {client.returncode}. stderr: {cl_err}"
         )
 
 

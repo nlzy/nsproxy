@@ -58,18 +58,18 @@ def _run_dns_redir_test(nsproxy_runner, extra_args, protocol="udp"):
             "+tries=2",
             "example.com",
         ])) as client:
-            stdout, stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=3)
 
         # Get outputs
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
+        cl_out = cl_stdout.decode(errors="replace")
+        cl_err = cl_stderr.decode(errors="replace")
 
         # Assertions
-        assert "120.0.0.1" in stdout_str, (
-            f"DNS query did not return expected IP. stdout: {stdout_str}, stderr: {stderr_str}"
+        assert "120.0.0.1" in cl_out, (
+            f"DNS query did not return expected IP. stdout: {cl_out}, stderr: {cl_err}"
         )
         assert client.returncode == 0, (
-            f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
+            f"Client exited with error code {client.returncode}. stderr: {cl_err}"
         )
 
 

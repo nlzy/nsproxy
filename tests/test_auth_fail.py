@@ -63,15 +63,15 @@ def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
             "-p",
             str(pingpong_port),
         ])) as client:
-            stdout, stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=3)
 
         # Get outputs
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
+        cl_out = cl_stdout.decode(errors="replace")
+        cl_err = cl_stderr.decode(errors="replace")
 
         # Client should fail with auth error
-        assert "Please check your username and password." in stderr_str, (
-            f"Expected auth error message not found. stderr: {stderr_str}"
+        assert "Please check your username and password." in cl_err, (
+            f"Expected auth error message not found. stderr: {cl_err}"
         )
 
 

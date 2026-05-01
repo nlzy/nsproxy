@@ -51,32 +51,32 @@ def _run_udp_pingpong_test(nsproxy_runner, extra_args):
             "-p",
             str(pingpong_port),
         ])) as client:
-            stdout, stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=3)
 
         # Get outputs
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
+        cl_out = cl_stdout.decode(errors="replace")
+        cl_err = cl_stderr.decode(errors="replace")
 
         # Immediately kill server after client finishes
         if server.poll() is None:
             server.kill()
 
-        server_stdout, server_stderr = server.communicate(timeout=3)
-        server_stdout_str = server_stdout.decode(errors="replace")
-        server_stderr_str = server_stderr.decode(errors="replace")
+        sv_stdout, sv_stderr = server.communicate(timeout=3)
+        sv_out = sv_stdout.decode(errors="replace")
+        sv_err = sv_stderr.decode(errors="replace")
 
         # Assertions
-        assert "SERVER-RECV-OK" in server_stdout_str, (
-            f"Server did not receive data. stderr: {server_stderr_str}"
+        assert "SERVER-RECV-OK" in sv_out, (
+            f"Server did not receive data. stderr: {sv_err}"
         )
-        assert "CLIENT-RECV-OK" in stdout_str, (
-            f"Client did not receive data. stderr: {stderr_str}"
+        assert "CLIENT-RECV-OK" in cl_out, (
+            f"Client did not receive data. stderr: {cl_err}"
         )
         assert server.returncode == 0, (
-            f"Server exited with error code {server.returncode}. stderr: {server_stderr_str}"
+            f"Server exited with error code {server.returncode}. stderr: {sv_err}"
         )
         assert client.returncode == 0, (
-            f"Client exited with error code {client.returncode}. stderr: {stderr_str}"
+            f"Client exited with error code {client.returncode}. stderr: {cl_err}"
         )
 
 
