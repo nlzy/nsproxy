@@ -288,7 +288,7 @@ static void socks_handshake_output(struct proxy_socks *self)
             static_assert(sizeof(self->buffer) >= sizeof(hdr) + sizeof(ad.addr)
                               + 3, "???");
 
-            strlcpy(ad.addr, self->addr, sizeof(ad.addr));
+            snprintf(ad.addr, sizeof(ad.addr), "%s", self->addr);
             ad.port = self->port;
 
             ret = socks5_hdr_put(self->buffer + self->nbuffer,
@@ -593,7 +593,7 @@ static ssize_t socks_send(struct proxy *proxy, const char *data, size_t size)
         size_t offset = 0;
         ssize_t ret;
 
-        strlcpy(addr.addr, self->addr, sizeof(addr.addr));
+        snprintf(addr.addr, sizeof(addr.addr), "%s", self->addr);
         addr.port = self->port;
 
         ret = socks5_hdr_put(buffer + offset, sizeof(buffer) - offset, &hdr);

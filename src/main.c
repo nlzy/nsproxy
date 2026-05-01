@@ -775,14 +775,14 @@ int main(int argc, char *argv[])
             snprintf(dispserv, sizeof(dispserv), "http://%s:%u",
                      conf.proxysrv, (unsigned)conf.proxyport);
         else
-            strlcpy(dispserv, "(direct)", sizeof(dispserv));
+            strcpy(dispserv, "(direct)");
 
         if (conf.dnstype == DNS_REDIR_TCP)
             snprintf(dispdns, sizeof(dispdns), "tcp://%s", conf.dnssrv);
         else if (conf.dnstype == DNS_REDIR_UDP)
             snprintf(dispdns, sizeof(dispdns), "udp://%s", conf.dnssrv);
         else
-            strlcpy(dispdns, "(off)", sizeof(dispdns));
+            strcpy(dispdns, "(off)");
 
         loglv(0, "Proxy Server:     %s", dispserv);
         loglv(0, "DNS Redirection:  %s", dispdns);
