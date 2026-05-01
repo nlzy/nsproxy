@@ -90,7 +90,6 @@ void loop_init(struct loopctx **loop, int sigfd)
 void loop_deinit(struct loopctx *loop)
 {
     close(loop->epfd);
-    close(loop->sigfd);
     free(loop);
 }
 

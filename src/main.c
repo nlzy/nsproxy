@@ -434,9 +434,7 @@ static int recv_fd(int sock)
 */
 static int parent(int sk)
 {
-    int tunfd;
-    int childfd;
-    int rc;
+    int rc, tunfd, chdsigfd;
     sigset_t mask;
     struct loopctx *loop;
     struct corectx *core;
@@ -463,7 +461,7 @@ static int parent(int sk)
         exit(EXIT_FAILURE);
     }
 
-    if ((childfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
+    if ((chdsigfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
         perror("signalfd()");
         exit(EXIT_FAILURE);
     }
@@ -475,7 +473,7 @@ static int parent(int sk)
     }
     close(sk);
 
-    loop_init(&loop, childfd);
+    loop_init(&loop, chdsigfd);
     core_init(&core, loop, tunfd);
 
     loglv(3, "parent: starting event loop");
@@ -483,6 +481,8 @@ static int parent(int sk)
 
     core_deinit(core);
     loop_deinit(loop);
+    close(chdsigfd);
+    close(tunfd);
 
     return rc;
 }

@@ -890,10 +890,6 @@ void core_deinit(struct corectx *core)
         perror("close(core->timerfd)");
         abort();
     }
-    if ((ret = close(core->tunfd)) == -1) {
-        perror("close(core->tunfd)");
-        abort();
-    }
 
     free(core);
 }
