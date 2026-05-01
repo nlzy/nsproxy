@@ -1,11 +1,17 @@
 """
-DNS Redirection TCP Tests
-=========================
+Basic DNS Redirection Tests
+===========================
 
-These tests verify nsproxy's DNS redirection to a TCP nameserver.
+These tests verify nsproxy's DNS redirection to UDP and TCP nameservers.
 
 Tests:
 ------
+test_dns_redir_udp_direct
+    Tests DNS redirection to UDP nameserver in direct mode (-D flag).
+
+test_dns_redir_udp_socks5
+    Tests DNS redirection to UDP nameserver through SOCKS5 proxy.
+
 test_dns_redir_tcp_direct
     Tests DNS redirection to TCP nameserver in direct mode (-D flag).
 
@@ -17,8 +23,7 @@ test_dns_redir_tcp_http
 
 Usage:
 ------
-    pytest -v tests/test_dns_redir_tcp.py
-    pytest -v -k "dns_redir_tcp" tests/
+    pytest -v tests/test_basic_dns.py
 """
 
 import subprocess
@@ -33,8 +38,8 @@ COREDNS_CONFIG = "tests/conf/coredns.conf"
 COREDNS_PORT = 30053
 
 
-def _run_dns_redir_tcp_test(nsproxy_runner, extra_args):
-    """Run DNS redirection TCP test through nsproxy"""
+def _run_dns_redir_test(nsproxy_runner, extra_args, protocol="udp"):
+    """Run DNS redirection test through nsproxy"""
     with managed_proc(subprocess.Popen(
         ["coredns", "-conf", COREDNS_CONFIG],
         stdout=subprocess.PIPE,
@@ -46,7 +51,7 @@ def _run_dns_redir_tcp_test(nsproxy_runner, extra_args):
         # Run the dig client through nsproxy
         with managed_proc(nsproxy_runner(extra_args + [
             "-d",
-            f"tcp://127.0.0.1:{COREDNS_PORT}",
+            f"{protocol}://127.0.0.1:{COREDNS_PORT}",
             "dig",
             "+short",
             "+time=1",
@@ -68,22 +73,38 @@ def _run_dns_redir_tcp_test(nsproxy_runner, extra_args):
         )
 
 
+def test_dns_redir_udp_direct(nsproxy_runner):
+    """Test DNS redirection to UDP nameserver in direct mode"""
+    _run_dns_redir_test(nsproxy_runner, ["-D"], protocol="udp")
+
+
+def test_dns_redir_udp_socks5(proxy_server, nsproxy_runner):
+    """Test DNS redirection to UDP nameserver through SOCKS5 proxy"""
+    _run_dns_redir_test(
+        nsproxy_runner,
+        ["-s", "127.0.0.1", "-p", str(SOCKS_NOAUTH_PORT)],
+        protocol="udp",
+    )
+
+
 def test_dns_redir_tcp_direct(nsproxy_runner):
     """Test DNS redirection to TCP nameserver in direct mode"""
-    _run_dns_redir_tcp_test(nsproxy_runner, ["-D"])
+    _run_dns_redir_test(nsproxy_runner, ["-D"], protocol="tcp")
 
 
 def test_dns_redir_tcp_socks5(proxy_server, nsproxy_runner):
     """Test DNS redirection to TCP nameserver through SOCKS5 proxy"""
-    _run_dns_redir_tcp_test(
+    _run_dns_redir_test(
         nsproxy_runner,
         ["-s", "127.0.0.1", "-p", str(SOCKS_NOAUTH_PORT)],
+        protocol="tcp",
     )
 
 
 def test_dns_redir_tcp_http(proxy_server, nsproxy_runner):
     """Test DNS redirection to TCP nameserver through HTTP proxy"""
-    _run_dns_redir_tcp_test(
+    _run_dns_redir_test(
         nsproxy_runner,
         ["-H", "-s", "127.0.0.1", "-p", str(HTTP_NOAUTH_PORT)],
+        protocol="tcp",
     )
