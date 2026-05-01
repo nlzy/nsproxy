@@ -67,6 +67,8 @@ struct corectx {
     struct udp_forward *udplst;
 
     struct proxy *udpassoc;
+    uint32_t assocretries;
+    uint32_t assoccd;
     uint8_t assocready;
 };
 
@@ -586,14 +588,17 @@ static void udp_assoc_io_event(void *userp, unsigned int events)
 
     if (events != EPOLLOUT) {
         /* must be some error */
+        int expbackoff = core->assocretries <= 5 ? core->assocretries : 5;
         proxy_put(core->udpassoc);
         core->udpassoc = NULL;
         core->assocready = 0;
+        core->assoccd = 1 << expbackoff; /* exponet backoff for re-associate */
         while (core->udplst)
             udp_forward_destroy(core->udplst);
     } else {
         proxy_evctl(core->udpassoc, EPOLLOUT, 0);
         core->assocready = 1;
+        core->assocretries = 0;
         for (fwd = core->udplst; fwd; fwd = fwd->next)
             udp_proxy_output(fwd);
     }
@@ -763,9 +768,20 @@ static void core_gc_tmr(struct corectx *core)
 static void core_reassoc_tmr(struct corectx *core)
 {
     struct loopctx *loop = core->loop;
-    if (current_nspconf()->proxytype == PROXY_SOCKS5 && core->udpassoc == NULL
-        && core->assocready == 0) {
-        core->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, core);
+
+    if (current_nspconf()->proxytype != PROXY_SOCKS5)
+        return;
+
+    if (core->udpassoc == NULL && !core->assocready) {
+        /* re-associate is needed */
+        if (core->assoccd > 0) {
+            /* exponent backoff countdown */
+            core->assoccd--;
+        } else {
+            /* re-associate */
+            core->udpassoc = socks_assoc_create(loop, &udp_assoc_io_event, core);
+            core->assocretries++;
+        }
     }
 }
 
@@ -862,6 +878,8 @@ void core_init(struct corectx **core, struct loopctx *loop, int tunfd)
         p->udpassoc = NULL;
         p->assocready = 0;
     }
+    p->assocretries = 0;
+    p->assoccd = 0;
 
     *core = p;
 }
