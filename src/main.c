@@ -814,7 +814,7 @@ int main(int argc, char *argv[])
 
         /* check iplen */
         iplen = ipend - ipbegin;
-        if (iplen == 0 || iplen > SERVNAME_MAXLEN) {
+        if (iplen == 0 || iplen > IP_MAXLEN) {
             fprintf(stderr, "nsproxy: Bad DNS server address\n");
             exit(EXIT_FAILURE);
         }

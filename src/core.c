@@ -48,9 +48,9 @@ struct tcp_forward {
     struct tcp_pcb *pcb;
     struct pbuf *sndq;
     struct pbuf *rcvq;
-    unsigned int gc;
-    u8_t proxyeof;
-    u8_t lwipeof;
+    int gc;
+    uint8_t proxyeof;
+    uint8_t lwipeof;
 };
 
 struct udp_forward {
@@ -60,8 +60,8 @@ struct udp_forward {
     struct proxy *proxy;
     struct udp_pcb *pcb;
     struct pbuf *rcvq[8];
-    unsigned int gc;
-    u16_t nrcvq;
+    int nrcvq;
+    int gc;
 };
 
 struct corectx {
@@ -81,8 +81,8 @@ struct corectx {
     struct udp_forward *udplst;
 
     struct proxy *udpassoc;
-    uint32_t assocretries;
-    uint32_t assoccd;
+    int assocretries;
+    int assoccd;
     uint8_t assocready;
 };
 
@@ -92,9 +92,10 @@ static int is_gateway(const struct netif *netif, const ip_addr_t *addr)
            || ip_addr_cmp(addr, netif_ip_addr6(netif, 0));
 }
 
-static void tun_input(struct netif *tunif)
+/* read packets from TUN, push to lwIP stack */
+static void tun_input(struct corectx *core)
 {
-    struct corectx *core = tunif->state;
+    struct netif *tunif = &core->tunif;
     struct pbuf *p = NULL;
     size_t budget = 250; /* avoid starve, defaults to half of TUN queue size */
 
@@ -129,9 +130,9 @@ static void tun_input(struct netif *tunif)
         pbuf_free(p);
 }
 
-static err_t tun_output(struct netif *tunif, struct pbuf *p)
+/* write packet to TUN */
+static err_t tun_output(struct corectx *core, struct pbuf *p)
 {
-    struct corectx *core = tunif->state;
     struct pbuf *seg;
     struct iovec iov[16];
     size_t i, clen;
@@ -174,13 +175,15 @@ static err_t tun_output(struct netif *tunif, struct pbuf *p)
 static err_t tunip4_output(struct netif *netif, struct pbuf *p,
                            const ip4_addr_t *ipaddr)
 {
-    return tun_output(netif, p);
+    struct corectx *core = netif->state;
+    return tun_output(core, p);
 }
 
 static err_t tunip6_output(struct netif *netif, struct pbuf *p,
                            const ip6_addr_t *ipaddr)
 {
-    return tun_output(netif, p);
+    struct corectx *core = netif->state;
+    return tun_output(core, p);
 }
 
 static err_t tunlink_output(struct netif *tunif, struct pbuf *packet)
@@ -205,7 +208,7 @@ static err_t tunif_init(struct netif *netif)
 static void core_tunfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
 {
     struct corectx *core = container_of(epcb, struct corectx, tunepcb);
-    tun_input(&core->tunif);
+    tun_input(core);
 }
 
 /* Create a new udp_forward instance and add to list */

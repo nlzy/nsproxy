@@ -16,7 +16,7 @@ struct proxy_ops {
    call `*_create()' function to obtain this pointer
  */
 struct proxy {
-    struct proxy_ops const *ops;
+    const struct proxy_ops *ops;
 };
 
 /* evctl mode:
