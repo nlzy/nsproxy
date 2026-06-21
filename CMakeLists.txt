@@ -42,7 +42,7 @@ target_include_directories(nsproxy PRIVATE
 
 target_compile_definitions(nsproxy PRIVATE
     _GNU_SOURCE
-    _FORTIFY_SOURCE=2
+    _FORTIFY_SOURCE=3
 )
 
 target_compile_options(nsproxy PRIVATE
