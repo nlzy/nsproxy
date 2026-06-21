@@ -48,12 +48,8 @@ struct proxy_tcpdns {
     userev_fn_t *userev;
     void *userp;
 
-    /* user may initiate multiple queries on a single pseudo UDP connection, so
-       there is multiple workers, each worker open a single TCP connection for
-       a single query.
-       because in DNS protocol, a single TCP connection can only handle one
-       query
-    */
+    /* Unfortunately, not all DNS servers support connection reuse (RFC 7766).
+       For compatibility, we create a TCP connection for each DNS request. */
     struct tcpdns_worker *workers;
 };
 

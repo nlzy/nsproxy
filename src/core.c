@@ -40,30 +40,33 @@
 #include "socks.h"
 #include "tcpdns.h"
 
+/* forward between a TCP 4-tuple and a proxy connection */
 struct tcp_forward {
     struct corectx *core;
     struct tcp_forward *prev;
     struct tcp_forward *next;
     struct proxy *proxy;
     struct tcp_pcb *pcb;
-    struct pbuf *sndq;
+    struct pbuf *sndq; /* explicit TX RX queues require by lwIP */
     struct pbuf *rcvq;
     int gc;
     uint8_t proxyeof;
     uint8_t lwipeof;
 };
 
+/* forward between a UDP 4-tuple and a proxy connection */
 struct udp_forward {
     struct corectx *core;
     struct udp_forward *prev;
     struct udp_forward *next;
     struct proxy *proxy;
     struct udp_pcb *pcb;
-    struct pbuf *rcvq[8];
+    struct pbuf *rcvq[8]; /* mitigate DNS re-trans during assoc for UX */
     int nrcvq;
     int gc;
 };
 
+/* only one context during the whole lifecycle of a process */
 struct corectx {
     struct netif tunif;
 
@@ -76,10 +79,11 @@ struct corectx {
     uint64_t timerepoch;
     struct epcb_ops timerepcb;
 
-    /* tracking all forward instances */
+    /* tracking all living forward instances */
     struct tcp_forward *tcplst;
     struct udp_forward *udplst;
 
+    /* a single associate connection for all udp_forward */
     struct proxy *udpassoc;
     int assocretries;
     int assoccd;
@@ -489,7 +493,7 @@ err_t core_udp_new(struct udp_pcb *pcb)
 end:
     if (fwd->proxy == NULL) {
         udp_forward_destroy(fwd);
-        return ERR_ABRT;
+        return ERR_ABRT; /* can't handle, return ERR_ABRT to send ICMP unreach */
     } else {
         return ERR_OK;
     }
@@ -934,6 +938,7 @@ static void core_timerfd_epcb_events(struct epcb_ops *epcb, unsigned int events)
                 strerror(errno));
         return;
     }
+    /* no wall clock in submodules, use while-loop to feed all expired ticks */
     while (expired--) {
         if (core->timerepoch % 4 == 0) {
             core_gc_tmr(core);
