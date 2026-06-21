@@ -110,17 +110,12 @@ static void tcp_remove_sacks_gt(struct tcp_pcb *pcb, u32_t seq);
 #endif /* LWIP_TCP_SACK_OUT */
 
 #if NSPROXY_MODIFIED
-err_t on_tcp_accept_do_nothing(void *arg, struct tcp_pcb *newpcb, err_t err)
+err_t tcp_accept_noop(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-  /* We have called core_tcp_new() already, so don't care this callback that
-     indicating TCP handshake succeed.
-     Even if TCP handshake failed rarely, call to sk_ops :: destroy is
-     guaranteed by tcp_free(), still no need to handle anything at here.
-  */
-  return ERR_OK;
+  return ERR_OK; /* we have called core_tcp_new() already, no-op here. */
 }
 static struct tcp_pcb_listen nsproxy_fake_lpcb = {
-  .accept = &on_tcp_accept_do_nothing
+  .accept = &tcp_accept_noop
 };
 #endif
 
@@ -420,8 +415,6 @@ tcp_input(struct pbuf *p, struct netif *inp)
 
 #if NSPROXY_MODIFIED
   if (pcb == NULL) {
-    ip_addr_copy(nsproxy_fake_lpcb.local_ip, *ip_current_dest_addr());
-    nsproxy_fake_lpcb.local_port = tcphdr->dest;
     tcp_listen_input(&nsproxy_fake_lpcb);
     pbuf_free(p);
     return;
@@ -705,7 +698,11 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
     /* Set up the new PCB. */
     ip_addr_copy(npcb->local_ip, *ip_current_dest_addr());
     ip_addr_copy(npcb->remote_ip, *ip_current_src_addr());
+#if NSPROXY_MODIFIED
+    npcb->local_port = tcphdr->dest;
+#else
     npcb->local_port = pcb->local_port;
+#endif
     npcb->remote_port = tcphdr->src;
     npcb->state = SYN_RCVD;
     npcb->rcv_nxt = seqno + 1;
@@ -755,10 +752,8 @@ tcp_listen_input(struct tcp_pcb_listen *pcb)
 
 #if NSPROXY_MODIFIED
     /* try to create a connection to proxy server when first SYN is recived */
-    if (core_tcp_new(npcb) != ERR_OK) {
-      /* pcb is free'ed, no need to do anything */
-      return;
-    }
+    if (core_tcp_new(npcb) != ERR_OK)
+      return; /* pcb was free'ed, no need to do anything */
 #endif
   }
   return;

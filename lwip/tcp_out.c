@@ -1246,7 +1246,7 @@ tcp_output(struct tcp_pcb *pcb)
 
 #if NSPROXY_MODIFIED
   if (!pcb->proxyestab)
-    return ERR_OK;
+    return ERR_OK; /* see comment about proxyestab */
 #endif
 
   LWIP_ASSERT_CORE_LOCKED();
