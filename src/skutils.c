@@ -172,6 +172,7 @@ void skutils_close_unreg(struct skinfo *info, struct loopctx *loop, int *sfd)
 
     *sfd = -1;
 
-    loglv1("Closed %s:%u/%s (sent %zu, received %zu bytes)", info->addr,
-           (unsigned)info->port, info->proto, info->nsent, info->nread);
+    if (info)
+        loglv1("Closed %s:%u/%s (sent %zu, received %zu bytes)", info->addr,
+               (unsigned)info->port, info->proto, info->nsent, info->nread);
 }

@@ -60,7 +60,8 @@ struct tcpdns_worker {
     struct tcpdns_worker *prev;
     struct tcpdns_worker *next;
 
-    char buffer[4096];
+    /* See RFC 6891 and DNS Flag Day 2020. 4096 should suffice in realworld. */
+    char buffer[4096 + 2]; /* +2 for rsz */
     ssize_t nbuffer;
 
     uint8_t done;
@@ -97,8 +98,8 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     ssize_t nread, nsent;
 
     if (event & EPOLLERR) {
-        tcpdns_worker_destroy(worker);
-        return;
+        logwarn("tcpdns_worker_handle_event: epoll report an error");
+        goto failed;
     }
 
     if (event & EPOLLIN) {
@@ -107,15 +108,18 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
         if (nread == -EAGAIN) {
             return; /* not finish */
         } else if (nread <= 0) {
-            tcpdns_worker_destroy(worker); /* error / closed */
-            return;
+            const char *msg = worker->nbuffer == sizeof(worker->buffer)
+                ? "over-size DNS packet, drop" : "proxy_recv() failed with EOF";
+            logwarn("tcpdns_worker_handle_event: %s", msg);
+            goto failed;
         } else {
             worker->nbuffer += nread;
         }
 
-        if (worker->nbuffer > 2) {
+        /* sizeof(rsz) + sizeof(DNS header) */
+        if (worker->nbuffer >= 2 + 12) {
             uint16_t rsz;
-            uint64_t sema = 1;
+            const uint64_t one = 1;
 
             memcpy(&rsz, worker->buffer, sizeof(rsz));
             rsz = ntohs(rsz);
@@ -129,8 +133,11 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
 
             /* mark we have done and notice master */
             worker->done = 1;
-            if (write(worker->master->evfd, &sema, sizeof(sema)) == -1)
-                tcpdns_worker_destroy(worker);
+            if (write(worker->master->evfd, &one, sizeof(one)) == -1) {
+                logwarn("tcpdns_worker_handle_event: write evfd failed: %s",
+                        strerror(errno));
+                goto failed;
+            }
         }
 
         return; /* only handle single type of event */
@@ -141,8 +148,8 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
         if (nsent == -EAGAIN) {
             return; /* not finish */
         } else if (nsent <= 0) {
-            tcpdns_worker_destroy(worker); /* error / closed */
-            return;
+            logwarn("tcpdns_worker_handle_event: proxy_send() failed");
+            goto failed;
         } else {
             worker->nbuffer -= nsent;
             memmove(worker->buffer, worker->buffer + nsent, worker->nbuffer);
@@ -154,6 +161,9 @@ static void tcpdns_worker_handle_event(void *userp, unsigned int event)
     }
 
     return;
+
+failed:
+    tcpdns_worker_destroy(worker);
 }
 
 /* eventfd callback, triggered when worker has data */
@@ -272,23 +282,6 @@ static ssize_t tcpdns_recv(struct proxy *proxy, char *data, size_t size)
     return szcopy;
 }
 
-/* internal destroy function, called when refcnt reaches zero */
-static void tcpdns_destroy_internal(struct proxy_tcpdns *master)
-{
-    loginfo("tcpdns_destroy_internal: destroying tcpdns master");
-
-    while (master->workers)
-        tcpdns_worker_destroy(master->workers);
-
-    if (master->evfd != -1) {
-        if (close(master->evfd) == -1)
-            logwarn("tcpdns_destroy_internal: close evfd failed: %s",
-                    strerror(errno));
-    }
-
-    free(master);
-}
-
 /* impl for struct proxy :: get */
 static void tcpdns_get(struct proxy *proxy)
 {
@@ -301,7 +294,10 @@ static void tcpdns_put(struct proxy *proxy)
 {
     struct proxy_tcpdns *master = container_of(proxy, struct proxy_tcpdns, ops);
     if (--master->refcnt == 0) {
-        tcpdns_destroy_internal(master);
+        while (master->workers)
+            tcpdns_worker_destroy(master->workers);
+        skutils_close_unreg(NULL, master->loop, &master->evfd);
+        free(master);
     }
 }
 
