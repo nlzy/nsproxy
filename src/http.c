@@ -252,14 +252,17 @@ static void http_handshake_output(struct proxy_http *self)
                 lb, self->ip, rb, (unsigned)self->port,
                 lb, self->ip, rb, (unsigned)self->port);
         }
+        if (buff->capacity == 0 || buff->size > buff->capacity - 1) {
+            logwarn("http_handshake_output: buff can't store request header");
+            goto failed_handshake;
+        }
     }
 
     nsent = send(self->sfd, buff->data, buff->size, MSG_NOSIGNAL);
     if (nsent == -1) {
         if (errno != EAGAIN) {
             http_handshake_perror(self, errno);
-            self->phase = PHASE_FAILED;
-            self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
+            goto failed_handshake;
         }
         return;
     }
@@ -275,6 +278,11 @@ static void http_handshake_output(struct proxy_http *self)
     self->phase = PHASE_RECV_REPLY;
     skutils_evctl(self->loop, self->sfd, &self->events, &self->epcb, EPOLLIN,
                   EVUPD);
+    return;
+
+failed_handshake:
+    self->phase = PHASE_FAILED;
+    self->userev(self->userp, EPOLLIN | EPOLLOUT | EPOLLERR);
 }
 
 static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
