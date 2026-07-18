@@ -41,13 +41,13 @@ enum {
 };
 
 static const char *phasestr[] = {
-    [PHASE_SEND_METHOD] = "PHASE_SEND_METHOD",
-    [PHASE_RECV_METHOD] = "PHASE_RECV_METHOD",
-    [PHASE_SEND_AUTH] = "PHASE_SEND_AUTH",
-    [PHASE_RECV_AUTH] = "PHASE_RECV_AUTH",
-    [PHASE_SEND_REQUEST] = "PHASE_SEND_REQUEST",
-    [PHASE_RECV_REPLY] = "PHASE_RECV_REPLY",
-    [PHASE_FORWARDING] = "PHASE_FORWARDING",
+    [PHASE_SEND_METHOD] = "send-method",
+    [PHASE_RECV_METHOD] = "recv-method",
+    [PHASE_SEND_AUTH] = "send-auth",
+    [PHASE_RECV_AUTH] = "recv-auth",
+    [PHASE_SEND_REQUEST] = "send-request",
+    [PHASE_RECV_REPLY] = "recv-reply",
+    [PHASE_FORWARDING] = "forwarding",
 };
 
 static const char *rspstr[] = {
@@ -630,7 +630,7 @@ static void socks_epcb_events(struct epcb_ops *epcb, unsigned int events)
         return;
     }
 
-    loginfo("socks_epcb_events: handshaking with %s:%u/%s [%s]",
+    loginfo("socks_epcb_events: handshake for %s:%u/%s %s",
             self->ip, (unsigned)self->port,
             self->type == TCP_FORWARD ? "tcp" : "udp", phasestr[self->phase]);
 

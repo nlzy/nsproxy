@@ -36,9 +36,9 @@ enum {
 };
 
 static const char *phasestr[] = {
-    [PHASE_SEND_REQUEST] = "PHASE_SEND_REQUEST",
-    [PHASE_RECV_REPLY] = "PHASE_RECV_REPLY",
-    [PHASE_FORWARDING] = "PHASE_FORWARDING",
+    [PHASE_SEND_REQUEST] = "send-request",
+    [PHASE_RECV_REPLY] = "recv-reply",
+    [PHASE_FORWARDING] = "forwarding",
 };
 
 /* Base64 output length (include NUL terminate) */
@@ -290,7 +290,7 @@ static void http_epcb_events(struct epcb_ops *epcb, unsigned int events)
         return;
     }
 
-    loginfo("http_epcb_events: handshaking with %s:%u/tcp [%s]", self->ip,
+    loginfo("http_epcb_events: handshake for %s:%u/tcp %s", self->ip,
             (unsigned)self->port, phasestr[self->phase]);
 
     if (self->phase == PHASE_SEND_REQUEST) {
