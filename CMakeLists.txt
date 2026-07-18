@@ -25,13 +25,14 @@ add_executable(nsproxy
     lwip/tcp_in.c
     lwip/tcp_out.c
     lwip/udp.c
-    src/main.c
     src/core.c
-    src/skutils.c
-    src/loop.c
+    src/csignal.c
     src/direct.c
-    src/socks.c
     src/http.c
+    src/loop.c
+    src/main.c
+    src/skutils.c
+    src/socks.c
     src/tcpdns.c
 )
 

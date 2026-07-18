@@ -16,21 +16,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 #pragma once
-
 #include "common.h"
-#include "csignal.h"
 
-struct loopctx;
-
-struct epcb_ops {
-    void (*on_epoll_events)(struct epcb_ops *conn, unsigned int events);
+struct csigctx {
+    int sigfd;
+    int rc;
+    pid_t cid;
 };
 
-int loop_init(struct loopctx **loop, struct csigctx *csig);
-
-void loop_deinit(struct loopctx *loop);
-
-int loop_run(struct loopctx *loop);
-
-int loop_epoll_ctl(struct loopctx *loop, int op, int fd, unsigned events,
-                   struct epcb_ops *epcb);
+int csignal_initfd(void);
+int csignal_handler(struct csigctx *csig);

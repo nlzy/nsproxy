@@ -17,63 +17,14 @@
  */
 #include "loop.h"
 
-#include <signal.h>
 #include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <sys/wait.h>
 
 struct loopctx {
-    int sigfd;
     int epfd;
+    struct csigctx *csig;
 };
 
-/* handle SIGCHLD, nsproxy exits after all child processes exit
-   returns:
-   - -EAGAIN: child still alive
-   - >= 0: exit status of last child
-   - < 0: error
-*/
-static int sigfd_handler(struct loopctx *loop)
-{
-    struct signalfd_siginfo sig;
-    pid_t pid;
-    int stat, exited, exitcode = 0;
-
-    if (read(loop->sigfd, &sig, sizeof(sig)) == -1)
-        return -errno;
-
-    /* we never add signals other than SIGCHLD to the sigmask,
-       this should not happen */
-    if (sig.ssi_signo != SIGCHLD)
-        return -EINVAL;
-
-    /* reap all exited children */
-    while ((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
-        if (!WIFEXITED(stat) && !WIFSIGNALED(stat))
-            continue; /* child not dead */
-        exited = WIFEXITED(stat);
-        exitcode = exited ? WEXITSTATUS(stat) : (128 + WTERMSIG(stat));
-        loglv1("Child process %d %s %d", pid,
-               exited ? "exited with status" : "killed by signal",
-               exited ? WEXITSTATUS(stat) : WTERMSIG(stat));
-    }
-
-    /* no child could be reaped, may some still running, or all exited */
-
-    if (pid == -1 && errno == ECHILD) {
-        loglv1("All child exited, cleaning ...");
-        return exitcode;
-    } else if (pid == -1) {
-        int ret = -errno;
-        logwarn("sigfd_handler: waitpid() failed: %s", strerror(errno));
-        return ret;
-    } else {
-        assert(pid == 0);
-        return -EAGAIN;
-    }
-}
-
-int loop_init(struct loopctx **loop, int sigfd)
+int loop_init(struct loopctx **loop, struct csigctx *csig)
 {
     struct loopctx *p;
     struct epoll_event ev;
@@ -86,10 +37,10 @@ int loop_init(struct loopctx **loop, int sigfd)
         goto failed_after_malloc;
     }
 
-    p->sigfd = sigfd;
+    p->csig = csig;
     ev.events = EPOLLIN;
-    ev.data.ptr = &p->sigfd;
-    if (epoll_ctl(p->epfd, EPOLL_CTL_ADD, sigfd, &ev) == -1) {
+    ev.data.ptr = &p->csig; /* use our ctx address which is private */
+    if (epoll_ctl(p->epfd, EPOLL_CTL_ADD, csig->sigfd, &ev) == -1) {
         loglv0("loop_init: epoll_ctl(sigfd) failed: %s", strerror(errno));
         goto failed_after_epoll_create;
     }
@@ -123,12 +74,18 @@ int loop_run(struct loopctx *loop)
         if ((nevent = epoll_wait(loop->epfd, ev, arraysizeof(ev), -1)) == -1) {
             if (errno == EINTR)
                 continue;
-            return -errno;
+            loglv0("loop_run: epoll_wait() failed: %s", strerror(errno));
+            return -1;
         }
         for (i = 0; i < nevent; i++) {
-            if (ev[i].data.ptr == &loop->sigfd) {
-                if ((ret = sigfd_handler(loop)) != -EAGAIN)
-                    return ret;
+            if (ev[i].data.ptr == &loop->csig) {
+                if ((ret = csignal_handler(loop->csig)) == 0)
+                    continue;
+                if (ret > 0)
+                    loglv1("All child exited, cleaning ...");
+                else
+                    loglv0("loop_run: signal handler failed: %s", strerror(-ret));
+                return ret > 0 ? 0 : -1;
             } else {
                 struct epcb_ops *epcb = ev[i].data.ptr;
                 epcb->on_epoll_events(epcb, ev[i].events);

@@ -25,19 +25,16 @@
 #include <net/route.h>
 #include <netdb.h>
 #include <sched.h>
-#include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
-#include <sys/prctl.h>
 #include <sys/resource.h>
-#include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 
 #include "common.h"
 #include "core.h"
 #include "loop.h"
+#include "csignal.h"
 #include "lwipopts.h"
 
 int nsproxy_verbose_level__ = 0;
@@ -442,63 +439,32 @@ static int recv_fd(int sock)
     return ret;
 }
 
-/* use signalfd to receive SIGCHLD, setup sigprocmask and return a signalfd
-   must succeed, otherwise terminate this process */
-int setup_signalfd(void)
-{
-    int sigfd;
-    sigset_t mask;
-
-    /* mask = SIGCHLD */
-    if (sigemptyset(&mask) == -1) {
-        perror("sigemptyset()");
-        exit(EXIT_FAILURE);
-    }
-    if (sigaddset(&mask, SIGCHLD) == -1) {
-        perror("sigaddset()");
-        exit(EXIT_FAILURE);
-    }
-
-    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-        perror("sigprocmask()");
-        exit(EXIT_FAILURE);
-    }
-
-    if ((sigfd = signalfd(-1, &mask, SFD_CLOEXEC | SFD_NONBLOCK)) == -1) {
-        perror("signalfd()");
-        exit(EXIT_FAILURE);
-    }
-
-    return sigfd;
-}
-
 /* tasks in parent process are:
    1. Receive TUN file descriptor from child process.
-   2. Initialize lwIP / epoll / sigprocmask.
+   2. Initialize lwIP / event loop / child signalfd.
    3. Notify the child that parent is ready.
    4. Start the event loop, keep the event loop running, the event loop will
       handle IP packets from TUN device and forward traffic to proxy server.
 */
-static int parent(int sk)
+static int parent(int sk, pid_t cid)
 {
-    int rc, tunfd, sigfd;
+    int tunfd;
+    struct csigctx csig = { 0 };
     struct loopctx *loop;
     struct corectx *core;
-
-    /* become a subreaper, receive SIGCHLD for grandchilds */
-    if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == -1) {
-        loglv0("Warning: Failed to set child subreaper, grandchild processes "
-               "may not be tracked.");
-    }
 
     /* a little more than C10K, failure is not check */
     raise_nofile(10240);
 
     tunfd = recv_fd(sk);
 
-    sigfd = setup_signalfd();
+    csig.cid = cid;
+    if ((csig.sigfd = csignal_initfd()) < 0) {
+        fprintf(stderr, "Error: create child signalfd failed\n");
+        exit(EXIT_FAILURE);
+    }
 
-    if (loop_init(&loop, sigfd) == -1) {
+    if (loop_init(&loop, &csig) == -1) {
         fprintf(stderr, "Error: init event loop module failed\n");
         exit(EXIT_FAILURE);
     }
@@ -515,17 +481,17 @@ static int parent(int sk)
     close(sk);
 
     loginfo("parent: starting event loop");
-    if ((rc = loop_run(loop)) < 0) {
-        fprintf(stderr, "Error: loop_run(): %s\n", strerror(-rc));
+    if ((loop_run(loop)) == -1) {
+        fprintf(stderr, "Error: an error occurred in event loop\n");
         exit(EXIT_FAILURE);
     }
 
     core_deinit(core);
     loop_deinit(loop);
-    close(sigfd);
+    close(csig.sigfd);
     close(tunfd);
 
-    return rc;
+    return csig.rc;
 }
 
 /* tasks in child process are:
@@ -873,7 +839,7 @@ int main(int argc, char *argv[])
     if (cid) {
         loginfo("parent: forked child process (pid=%d)", cid);
         close(skpair[1]);
-        return parent(skpair[0]);
+        return parent(skpair[0], cid);
     } else {
         loginfo("child: process started");
         close(skpair[0]);
