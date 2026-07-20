@@ -28,9 +28,9 @@ DNS redirection. Supported values:
 .RS
 .IP \fBoff\fR
 Do nothing with DNS; treat as normal UDP packets.
-.IP \fBtcp://\fR\fIserver_ip\fR[\fB:\fR\fIport\fR]
+.IP \fBtcp://\fR\fIIP\fR[\fB:\fR\fIPORT\fR]
 Redirect DNS requests to the specified TCP nameserver.
-.IP \fBudp://\fR\fIserver_ip\fR[\fB:\fR\fIport\fR]
+.IP \fBudp://\fR\fIIP\fR[\fB:\fR\fIPORT\fR]
 Redirect DNS requests to the specified UDP nameserver.
 .RE
 .IP
@@ -48,7 +48,7 @@ Verbose mode. Use "\-vv" or "\-vvv" for more verbose.
 .B \-q
 Be quiet. Suppress output.
 .TP
-.B \-h
+.B \-h ", " \-\-help
 Print a help message and exit.
 .SH EXAMPLES
 Use SOCKS5 proxy:

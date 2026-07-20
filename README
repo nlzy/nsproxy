@@ -43,42 +43,17 @@ Examples:
   # Specify a custom proxy server and port
   nsproxy -s 192.168.1.100 -p 8888 curl http://example.com
 
-Options:
-  -H
-    Use HTTP proxy, not SOCKS5.
-    Note: UDP is **NOT** supported in HTTP protocol. UDP packets will be dropped.
+Common Options:
+  -H               Use an HTTP proxy instead of SOCKS5
+  -s <server>      Set the proxy server address
+  -p <port>        Set the proxy server port
+  -d <dns>         Redirect DNS queries to <tcp|udp>://<IP>[:PORT] or "off"
+  -a <user:pass>   Set the proxy username and password
+  -6               Enable IPv6 support
+  -v               Increase verbosity
+  -q               Be quiet
 
-  -s <server>
-    Proxy server address.
-    Default value is "127.0.0.1"
-
-  -p <port>
-    Proxy server port.
-    Default value is "1080" for SOCKS5, "8080" for HTTP
-
-  -d <dns>
-    DNS redirection, allow following options:
-      -d off
-        Do nothing on DNS, treat as normal UDP packets.
-      -d tcp://<server_ip>[:port]
-        Redirect DNS requests to specified TCP nameserver.
-      -d udp://<server_ip>[:port]
-        Redirect DNS requests to specified UDP nameserver.
-    IPv6 addresses must be enclosed in brackets (e.g. udp://[::1]:53).
-    Default value is "tcp://1.1.1.1".
-
-  -a <user:pass>
-    Proxy authentication (SOCKS5 or HTTP Basic Auth).
-
-  -6
-    Enable IPv6 support.
-    Default is disabled
-
-  -v
-    Verbose mode. Use "-vv" or "-vvv" for more verbose.
-
-  -q
-    Be quiet. Suppress output.
+For more details, see the man page.
 
 
 LIMITATIONS

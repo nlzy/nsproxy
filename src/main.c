@@ -43,33 +43,22 @@
 int nsproxy_verbose_level__ = 0;
 struct nspconf *nsproxy_current_nspconf__ = NULL;
 
-static void print_help(void)
-{
-    printf("Usage: nsproxy [OPTIONS...] <COMMAND> [ARGS...]\n"
-           "Options:\n"
-           "  -H\n"
-           "    Use HTTP proxy, not SOCKS5.\n"
-           "  -s <server>\n"
-           "    Proxy server address.\n"
-           "  -p <port>\n"
-           "    Proxy server port.\n"
-           "  -d <dns>\n"
-           "    DNS redirection, allow following options:\n"
-           "      -d off\n"
-           "        Do nothing on DNS, treat as normal UDP packets.\n"
-           "      -d tcp://<server_ip>[:port]\n"
-           "        Redirect DNS requests to specified TCP nameserver.\n"
-           "      -d udp://<server_ip>[:port]\n"
-           "        Redirect DNS requests to specified UDP nameserver.\n"
-           "  -a <user:pass>\n"
-           "    Proxy authentication (SOCKS5 or HTTP Basic Auth).\n"
-           "  -6\n"
-           "    Enable IPv6 support.\n"
-           "  -v\n"
-           "    Verbose mode. Use \"-vv\" or \"-vvv\" for more verbose.\n"
-           "  -q\n"
-           "    Be quiet. Suppress output.\n");
-}
+const char nsproxy_help_message__[] =
+    "Usage: nsproxy [OPTIONS...] <COMMAND> [ARGS...]\n"
+    "\n"
+    "Run COMMAND in a namespace and redirect its connections to a proxy.\n"
+    "\n"
+    "Common Options:\n"
+    "  -H               Use an HTTP proxy instead of SOCKS5\n"
+    "  -s <server>      Set the proxy server address\n"
+    "  -p <port>        Set the proxy server port\n"
+    "  -d <dns>         Redirect DNS queries to <tcp|udp>://<IP>[:PORT] or \"off\"\n"
+    "  -a <user:pass>   Set the proxy username and password\n"
+    "  -6               Enable IPv6 support\n"
+    "  -v               Increase verbosity\n"
+    "  -q               Be quiet\n"
+    "\n"
+    "For more details, see nsproxy(1).\n";
 
 static ssize_t write_all(int fd, const void *data, size_t size)
 {
@@ -203,8 +192,8 @@ static int bringup_tun(void)
                     "nsproxy: open \"/dev/net/tun\" failed.\n"
                     "hints: If you are using OpenWrt, install the package "
                     "'kmod-tun'.\n"
-                    "       If you are using LXC, add device '/dev/tun' "
-                    "to container.\n");
+                    "       If you are inside LXC or Docker container, add "
+                    "device '/dev/net/tun' to the container.\n");
             exit(EXIT_FAILURE);
         } else {
             perror("open(/dev/net/tun)");
@@ -660,14 +649,14 @@ int main(int argc, char *argv[])
     int ishttp = 0, isdirect = 0;
 
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
-        print_help();
+        printf("%s", nsproxy_help_message__);
         exit(EXIT_SUCCESS);
     }
 
     while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv6")) != -1) {
         switch (opt) {
         case 'h':
-            print_help();
+            printf("%s", nsproxy_help_message__);
             exit(EXIT_SUCCESS);
         case 'H':
             ishttp = 1;
@@ -702,7 +691,7 @@ int main(int argc, char *argv[])
     }
 
     if (optind >= argc) {
-        fprintf(stdout, "nsproxy: missing argument \"command\".\n");
+        fprintf(stderr, "nsproxy: missing argument \"COMMAND\".\n");
         exit(EXIT_FAILURE);
     }
 
@@ -720,20 +709,18 @@ int main(int argc, char *argv[])
         char *sep;
 
         if ((sep = strchr(auth, ':')) == NULL) {
-            fprintf(stderr, "nsproxy: invalid auth argument, expected "
-                            "<user>:<password>\n");
+            fprintf(stderr, "nsproxy: bad '-a' option, see '--help'\n");
             exit(EXIT_FAILURE);
         }
 
         ulen = sep - auth;
         plen = strlen(sep + 1);
         if (ulen == 0 || (plen == 0 && !ishttp)) {
-            fprintf(stderr, "nsproxy: invalid auth argument, expected "
-                            "<user>:<password>\n");
+            fprintf(stderr, "nsproxy: bad '-a' option, see '--help'\n");
             exit(EXIT_FAILURE);
         }
         if (ulen >= sizeof(conf.proxyuser) || plen >= sizeof(conf.proxypass)) {
-            fprintf(stderr, "nsproxy: username or password too long\n");
+            fprintf(stderr, "nsproxy: bad '-a' option: too long\n");
             exit(EXIT_FAILURE);
         }
 
@@ -793,11 +780,11 @@ int main(int argc, char *argv[])
             /* [ipv6] or [ipv6_addr]:port */
             ipbegin = sv + 1;
             if ((ipend = strchr(ipbegin, ']')) == NULL) {
-                fprintf(stderr, "nsproxy: Bad DNS server address\n");
+                fprintf(stderr, "nsproxy: bad '-d' option: invalid \"IP\"\n");
                 exit(EXIT_FAILURE);
             }
             if (*(ipend + 1) != '\0' && *(ipend + 1) != ':') {
-                fprintf(stderr, "nsproxy: Bad DNS server address\n");
+                fprintf(stderr, "nsproxy: bad '-d' option: invalid \"IP\"\n");
                 exit(EXIT_FAILURE);
             }
             sep = strchr(ipend + 1, ':');
@@ -806,7 +793,8 @@ int main(int argc, char *argv[])
             ipbegin = sv;
             sep = strchr(sv, ':');
             if (sep != strrchr(sv, ':')) {
-                fprintf(stderr, "nsproxy: IPv6 DNS must be enclosed in []\n");
+                fprintf(stderr, "nsproxy: bad '-d' option: IPv6 must be enclosed "
+                                "in []\n");
                 exit(EXIT_FAILURE);
             }
             ipend = sep ? sep : (sv + strlen(ipbegin));
@@ -815,7 +803,7 @@ int main(int argc, char *argv[])
         /* check iplen */
         iplen = ipend - ipbegin;
         if (iplen == 0 || iplen > IP_MAXLEN) {
-            fprintf(stderr, "nsproxy: Bad DNS server address\n");
+            fprintf(stderr, "nsproxy: bad '-d' option: invalid \"IP\"\n");
             exit(EXIT_FAILURE);
         }
 
@@ -824,7 +812,7 @@ int main(int argc, char *argv[])
             char *endptr;
             long val = strtol(sep + 1, &endptr, 10);
             if (val <= 0 || val > 65535 || *endptr != '\0') {
-                fprintf(stderr, "nsproxy: Bad DNS server port\n");
+                fprintf(stderr, "nsproxy: bad '-d' option: invalid \"PORT\"\n");
                 exit(EXIT_FAILURE);
             }
             port = val;
@@ -836,7 +824,7 @@ int main(int argc, char *argv[])
         conf.dnsport = port;
         conf.dnstype = dns[0] == 't' ? DNS_REDIR_TCP : DNS_REDIR_UDP;
     } else {
-        fprintf(stderr, "nsproxy: unsupported dns server address.\n");
+        fprintf(stderr, "nsproxy: bad '-d' option, see '--help'\n");
         exit(EXIT_FAILURE);
     }
 
