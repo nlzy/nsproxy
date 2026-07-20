@@ -1,13 +1,11 @@
 nsproxy
 ====================
 
-nsproxy (namespace proxy) is a Linux-specific command-line tool that forces apps
-to use a specific SOCKS5 or HTTP proxy.
+nsproxy (namespace proxy) is a Linux-specific tool that forces apps to use a
+specific SOCKS5 or HTTP proxy.
 
-Functionally similar to tsocks / proxychains-ng / graftcp, but using a different
-mechanism. It creates a new network_namespace with a TUN device and launches
-programs within it, and then connects the TUN device to a user-mode TCP/IP stack
-which redirects all connections to the proxy.
+Functionally similar to proxychains / tsocks / graftcp, it takes a different
+approach by using Linux namespaces + TUN device + user-mode TCP/IP stack.
 
 It has the following features:
 
@@ -34,14 +32,11 @@ Usage:
   nsproxy [OPTIONS...] <COMMAND> [ARGS...]
 
 Examples:
-  # Use SOCKS5 proxy
-  nsproxy curl http://example.com
+  # Run curl with SOCKS proxy
+  nsproxy -s 192.168.1.100 -p 1080 curl http://example.com
 
-  # Use HTTP proxy
-  nsproxy -H curl http://example.com
-
-  # Specify a custom proxy server and port
-  nsproxy -s 192.168.1.100 -p 8888 curl http://example.com
+  # Run curl with HTTP proxy
+  nsproxy -H -s 192.168.1.100 -p 8080 curl http://example.com
 
 Common Options:
   -H               Use an HTTP proxy instead of SOCKS5

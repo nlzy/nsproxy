@@ -1,21 +1,44 @@
-.TH NSPROXY 1 "February 2026" "nsproxy" "User Commands"
+.TH NSPROXY 1 "July 2026" "nsproxy" "User Commands"
 .SH NAME
-nsproxy \- unprivileged network namespace proxy
+nsproxy \- network namespace proxy
 .SH SYNOPSIS
 \fBnsproxy\fR [\fIOPTIONS...\fR] \fI<COMMAND>\fR [\fIARGS...\fR]
 .SH DESCRIPTION
-\fBnsproxy\fR is a Linux\-specific command\-line tool that forces apps to use a specific SOCKS5 or HTTP proxy.
+Run \fICOMMAND\fR with \fIARGS\fR in a network namespace and redirects its
+connections to the SOCKS5/HTTP proxy specified in \fIOPTIONS\fR.
 .PP
-Unlike \fBtsocks\fR or \fBproxychains\fR, which use \fBLD_PRELOAD\fR to intercept library calls, \fBnsproxy\fR uses Linux network namespaces. It creates a \fBTUN\fR device in a fresh network namespace and connects it to a user\-mode TCP/IP stack (lwIP). This allows it to work with statically linked programs and avoids many of the pitfalls of \fBLD_PRELOAD\fR\-based solutions.
+\fBnsproxy\fR first creates a new network namespace. Inside the namespace, it
+brings up the loopback interface, creates a \fBTUN\fR device, and routes all
+traffic through it. Then \fICOMMAND\fR is executed.
 .PP
-\fBnsproxy\fR does not require root privileges, as it leverages unprivileged user namespaces.
+\fBnsproxy\fR itself keeps running outside the namespace. It handles packets
+from the \fBTUN\fR device with a user-mode TCP/IP stack (\fBlwIP\fR), and
+forwards the traffic to the proxy server. When \fICOMMAND\fR and all its child
+processes have exited, \fBnsproxy\fR exits with the exit status of \fICOMMAND\fR.
+.PP
+By default, DNS queries are redirected through the proxy server to the
+nameserver set by \fB\-d\fR. To make this work, \fI/etc/resolv.conf\fR and
+\fI/etc/nsswitch.conf\fR are replaced inside the namespace. The original files
+are never changed. Use "\fB\-d off\fR" to disable this.
+.PP
+Root privileges are not required, an unprivileged user namespace is used by
+default.
+.SH EXAMPLES
+Run curl with SOCKS proxy:
+.IP
+\fBnsproxy \-s 192.168.1.100 \-p 1080 curl http://example.com\fR
+.PP
+Run curl with HTTP proxy:
+.IP
+\fBnsproxy \-H \-s 192.168.1.100 \-p 8080 curl http://example.com\fR
 .SH OPTIONS
 .TP
 .B \-H
 Use HTTP proxy instead of the default SOCKS5.
 .IP
 .B Note:
-UDP is not supported in the HTTP protocol. UDP packets will be dropped, and an ICMP port unreachable message will be returned.
+UDP is not supported in the HTTP protocol. UDP packets will be dropped, and an
+ICMP port unreachable message will be returned.
 .TP
 .BI \-s " server"
 Proxy server address. Default is "127.0.0.1".
@@ -34,7 +57,8 @@ Redirect DNS requests to the specified TCP nameserver.
 Redirect DNS requests to the specified UDP nameserver.
 .RE
 .IP
-Default is "tcp://1.1.1.1". IPv6 addresses must be enclosed in brackets (e.g., \fBtcp://[::1]:53\fR).
+Default is "tcp://1.1.1.1". IPv6 addresses must be enclosed in brackets (e.g., 
+\fBtcp://[::1]:53\fR).
 .TP
 .BI \-a " user:pass"
 Proxy authentication (SOCKS5 or HTTP Basic Auth).
@@ -43,32 +67,33 @@ Proxy authentication (SOCKS5 or HTTP Basic Auth).
 Enable IPv6 support. Default is disabled.
 .TP
 .B \-v
-Verbose mode. Use "\-vv" or "\-vvv" for more verbose.
+Verbose mode. Use "\-vv" or "\-vvv" for more verbose. All logs are written to
+\fBstderr\fR.
 .TP
 .B \-q
 Be quiet. Suppress output.
 .TP
-.B \-h ", " \-\-help
+.BR \-h ", " \-\-help
 Print a help message and exit.
-.SH EXAMPLES
-Use SOCKS5 proxy:
-.IP
-\fBnsproxy curl http://example.com\fR
+.SH EXIT STATUS
+Exit status of \fICOMMAND\fR, or \fB128\fR+\fIN\fR if \fICOMMAND\fR was killed
+by signal \fIN\fR. If \fICOMMAND\fR is a multi-process program, the parent's
+exit status is returned.
 .PP
-Use HTTP proxy:
-.IP
-\fBnsproxy \-H curl http://example.com\fR
-.PP
-Specify a custom proxy server and port:
-.IP
-\fBnsproxy \-s 192.168.1.100 \-p 8888 curl http://example.com\fR
+Exit status \fB1\fR if \fBnsproxy\fR itself fails.
+.SH FILES
+\fBnsproxy\fR has no configuration file.
 .SH LIMITATIONS
 .IP \(bu 2
-All UIDs and GIDs except the current user's are mapped to the overflow UID/GID. This means programs like \fBsudo\fR or \fBsu\fR will not work.
+All UIDs and GIDs except the current user's are mapped to the overflow UID/GID.
+This means programs like \fBsudo\fR or \fBsu\fR will not work. Running
+\fBnsproxy\fR as root avoids this.
 .IP \(bu 2
-It's unable to establish a connection from the outside to the inside. This means programs listening on a port like \fBapache\fR or \fBnginx\fR will not work.
+It's unable to establish a connection from the outside to the inside. This means
+programs listening on a port like \fBapache\fR or \fBnginx\fR will not work.
 .IP \(bu 2
-Connections to loopback addresses (\fB127.0.0.1\fR) refer to the inside of the namespace, not the host.
+Connections to loopback addresses (\fB127.0.0.1\fR) refer to the inside of the
+namespace, not the host.
 .SH SEE ALSO
 .BR tsocks (1),
 .BR proxychains (1),
