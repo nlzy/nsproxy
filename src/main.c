@@ -57,6 +57,12 @@ const char nsproxy_help_message__[] =
     "\n"
     "For more details, see nsproxy(1).\n";
 
+const char nsproxy_version_message__[] =
+    "nsproxy v" STRINGIFY(NSPROXY_VERSION) "\n\n"
+    "Copyright (C) 2023 NaLan ZeYu <nalanzeyu@gmail.com>\n"
+    "This is free software: you are free to change and redistribute it under GPLv2+.\n"
+    "There is ABSOLUTELY NO WARRANTY, to the extent permitted by applicable law.\n";
+
 static ssize_t write_all(int fd, const void *data, size_t size)
 {
     const char *p = data;
@@ -618,11 +624,18 @@ int main(int argc, char *argv[])
         printf("%s", nsproxy_help_message__);
         exit(EXIT_SUCCESS);
     }
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("%s", nsproxy_version_message__);
+        exit(EXIT_SUCCESS);
+    }
 
-    while ((opt = getopt(argc, argv, "+hHDs:p:d:a:qv6")) != -1) {
+    while ((opt = getopt(argc, argv, "+hVHDs:p:d:a:qv6")) != -1) {
         switch (opt) {
         case 'h':
             printf("%s", nsproxy_help_message__);
+            exit(EXIT_SUCCESS);
+        case 'V':
+            printf("%s", nsproxy_version_message__);
             exit(EXIT_SUCCESS);
         case 'H':
             ishttp = 1;

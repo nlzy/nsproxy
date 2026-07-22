@@ -40,6 +40,9 @@
 
 #define membersizeof(type, member) (sizeof(((type *)0)->member))
 
+#define STRINGIFY(a) STRINGIFY_(a)
+#define STRINGIFY_(a) #a
+
 #define loglv(lv, str, ...)                                        \
     do {                                                           \
         if (nsproxy_verbose_level__ >= lv)                         \

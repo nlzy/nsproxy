@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(nsproxy C)
+project(nsproxy VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
@@ -44,6 +44,7 @@ target_include_directories(nsproxy PRIVATE
 target_compile_definitions(nsproxy PRIVATE
     _GNU_SOURCE
     _FORTIFY_SOURCE=3
+    NSPROXY_VERSION=${PROJECT_VERSION}
 )
 
 target_compile_options(nsproxy PRIVATE
