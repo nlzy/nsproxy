@@ -566,15 +566,11 @@ static struct tcp_forward *tcp_forward_create(struct corectx *core)
     return fwd;
 }
 
-/* Destroy a tcp_forward instance and remove from list */
-static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
+/* Destroy a tcp_forward instance and remove from list.
+   If fwd->proxy or fwd->pcb present still, send a RST and force close  */
+static void tcp_forward_destroy(struct tcp_forward *fwd)
 {
     struct corectx *core = fwd->core;
-    int rst = 0;
-
-    /* queues not drained, breaks TCP reliable delivery semantics, RST */
-    if (fwd->sndq != NULL || fwd->rcvq != NULL)
-        rst = 1;
 
     /* remove from linked-list */
     if (fwd->prev != NULL)
@@ -585,22 +581,12 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
         fwd->next->prev = fwd->prev;
 
     if (fwd->pcb) {
-        /* avoid tcp_close() calls callbacks again on destroy path */
-        tcp_arg(fwd->pcb, NULL);
-        tcp_sent(fwd->pcb, NULL);
-        tcp_recv(fwd->pcb, NULL);
-        tcp_err(fwd->pcb, NULL);
-        if (force || rst) {
-            tcp_abort(fwd->pcb);
-        } else {
-            if (tcp_close(fwd->pcb) != ERR_OK)
-                tcp_abort(fwd->pcb); /* tcp_close() may failed, abort it. */
-        }
+        tcp_err(fwd->pcb, NULL); /* tcp_abort() may call pcb->errf, cause UAF */
+        tcp_abort(fwd->pcb);
     }
 
     if (fwd->proxy) {
-        if (force || rst)
-            proxy_shutdown(fwd->proxy, SHUT_RDWR, 1);
+        proxy_shutdown(fwd->proxy, SHUT_RDWR, 1); /* force RST */
         proxy_put(fwd->proxy);
     }
 
@@ -610,6 +596,32 @@ static void tcp_forward_destroy(struct tcp_forward *fwd, int force)
         pbuf_free(fwd->rcvq);
 
     free(fwd);
+}
+
+/* Try to gracefully close proxy and pcb, then free fwd, return ERR_CLSD.
+   If either of them fails to close, turn to force destroy, return ERR_ABRT */
+static err_t tcp_forward_close(struct tcp_forward *fwd)
+{
+    /* xmit not finish, gracefully close is not possible */
+    if (!fwd->proxyeof || !fwd->lwipeof || fwd->sndq || fwd->rcvq)
+        goto failed_abort;
+
+    tcp_arg(fwd->pcb, NULL);
+    if (tcp_close(fwd->pcb) != ERR_OK)
+        goto failed_abort;
+    fwd->pcb = NULL;
+
+    proxy_put(fwd->proxy);
+    fwd->proxy = NULL;
+
+    tcp_forward_destroy(fwd);
+
+    loginfo("tcp_forward_close: gracefully closed");
+    return ERR_CLSD;
+
+failed_abort:
+    tcp_forward_destroy(fwd);
+    return ERR_ABRT;
 }
 
 /* Try to recv data from proxy server and send to application
@@ -676,18 +688,15 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
     if (fwd->proxyeof && !fwd->sndq) {
         loginfo("tcp_proxy_input: sndq drained, half-closing lwip");
         tcp_shutdown(pcb, 0, 1);
-        if (fwd->lwipeof && !fwd->rcvq) {
-            loginfo("tcp_proxy_input: full-closing");
-            tcp_forward_destroy(fwd, 0);
-            return ERR_CLSD;
-        }
+        if (fwd->lwipeof && !fwd->rcvq)
+            return tcp_forward_close(fwd);
     }
 
     return ERR_OK;
 
 failed_after_pbuf_alloc:
     pbuf_free(p);
-    tcp_forward_destroy(fwd, 1);
+    tcp_forward_destroy(fwd);
     return ERR_ABRT;
 }
 
@@ -715,7 +724,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
         } else if (nsent < 0) {
             logwarn("tcp_proxy_output: proxy error, force destroy fwd, "
                     "reason: %s", strerror(-nsent));
-            tcp_forward_destroy(fwd, 1);
+            tcp_forward_destroy(fwd);
             return ERR_ABRT;
         } else {
             fwd->rcvq = pbuf_free_header(fwd->rcvq, nsent);
@@ -731,12 +740,8 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
     if (fwd->lwipeof) {
         loginfo("tcp_proxy_output: rcvq drained, half-closing proxy");
         proxy_shutdown(proxy, SHUT_WR, 0);
-        /* full close */
-        if (fwd->proxyeof && !fwd->sndq) {
-            loginfo("tcp_proxy_output: full-closing");
-            tcp_forward_destroy(fwd, 0);
-            return ERR_CLSD;
-        }
+        if (fwd->proxyeof && !fwd->sndq)
+            return tcp_forward_close(fwd);
     }
 
     return ERR_OK;
@@ -752,10 +757,11 @@ static err_t tcp_lwip_sent(void *arg, struct tcp_pcb *pcb, u16_t len)
     /* remove ack'ed data from send queue */
     fwd->sndq = pbuf_free_header(fwd->sndq, len);
 
-    /* ask proxy server for more data, if we have space in queue */
+    /* Ask proxy server for more data, if we have space in queue.
+       Turn ERR_CLSD to ERR_OK, which is lwIP required. */
     if (tcp_sndbuf(pcb) >= TCPWND16(TCP_SND_BUF / 2))
         if (tcp_sndqueuelen(pcb) <= TCP_SND_QUEUELEN / 2)
-            return tcp_proxy_input(fwd);
+            return tcp_proxy_input(fwd) == ERR_ABRT ? ERR_ABRT : ERR_OK;
 
     return ERR_OK;
 }
@@ -782,7 +788,8 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
     if (!err)
         tcp_ack_now(pcb); /* lwIP delayed ACK (up to 250ms) is slow for TUN */
 
-    return tcp_proxy_output(fwd);
+    /* turn ERR_CLSD to ERR_OK, which is lwIP required */
+    return tcp_proxy_output(fwd) == ERR_ABRT ? ERR_ABRT : ERR_OK;
 }
 
 /* called by lwip when TCP connection has been destroyed,
@@ -794,7 +801,7 @@ static void tcp_lwip_err(void *arg, err_t err)
     if (fwd) {
         logwarn("tcp_lwip_err: lwip error, force destroy fwd");
         fwd->pcb = NULL;
-        tcp_forward_destroy(fwd, 1);
+        tcp_forward_destroy(fwd);
     }
 }
 
@@ -878,7 +885,7 @@ err_t core_tcp_new(struct tcp_pcb *pcb)
 
 end:
     if (fwd->proxy == NULL) {
-        tcp_forward_destroy(fwd, 1);
+        tcp_forward_destroy(fwd);
         return ERR_ABRT;
     } else {
         return ERR_OK;
@@ -894,7 +901,7 @@ static void core_gc_tmr(struct corectx *core)
     while (tcur) {
         struct tcp_forward *next = tcur->next;
         if (tcur->gc-- == 0)
-            tcp_forward_destroy(tcur, 1);
+            tcp_forward_destroy(tcur);
         tcur = next;
     }
 
@@ -1035,7 +1042,7 @@ failed_after_malloc:
 void core_deinit(struct corectx *core)
 {
     while (core->tcplst)
-        tcp_forward_destroy(core->tcplst, 1);
+        tcp_forward_destroy(core->tcplst);
     while (core->udplst)
         udp_forward_destroy(core->udplst);
 
