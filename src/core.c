@@ -295,8 +295,7 @@ static err_t udp_proxy_input(struct udp_forward *fwd)
             ret = ERR_OK;
             break;
         } else if (nread < 0) {
-            logwarn("udp_proxy_input: proxy error, destroy fwd, reason: %s",
-                    strerror(-nread));
+            logwarn("udp_proxy_input: proxy err: %s", strerror(-nread));
             udp_forward_destroy(fwd);
             ret = ERR_ABRT;
             break;
@@ -362,8 +361,7 @@ static err_t udp_proxy_output(struct udp_forward *fwd)
         }
         /* EAGAIN is not fatal error, and will not handle in UDP, ignore */
         if (nsent < 0 && nsent != -EAGAIN) {
-            logwarn("udp_proxy_output: proxy error, force destroy fwd, "
-                    "reason: %s", strerror(-nsent));
+            logwarn("udp_proxy_output: proxy err: %s", strerror(-nsent));
             goto failed_abort;
         }
         /* don't pbuf_free(p) here, if some packet sent succeed and some failed,
@@ -652,8 +650,10 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             pbuf_free(p);
             return ERR_OK;
         } else if (nread < 0) {
-            logwarn("tcp_proxy_input: proxy error, force destroy fwd "
-                    "reason: %s", strerror(-nread));
+            if (-nread == ECONNRESET)
+                loginfo("tcp_proxy_input: proxy side RST");
+            else
+                logwarn("tcp_proxy_input: proxy err: %s", strerror(-nread));
             goto failed_after_pbuf_alloc;
         } else if (nread == 0) {
             loginfo("tcp_proxy_input: received EOF from proxy");
@@ -722,8 +722,7 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
             proxy_evctl(proxy, EPOLLOUT, EVSET);
             return ERR_OK;
         } else if (nsent < 0) {
-            logwarn("tcp_proxy_output: proxy error, force destroy fwd, "
-                    "reason: %s", strerror(-nsent));
+            logwarn("tcp_proxy_output: proxy err: %s", strerror(-nsent));
             tcp_forward_destroy(fwd);
             return ERR_ABRT;
         } else {
@@ -798,8 +797,13 @@ static err_t tcp_lwip_received(void *arg, struct tcp_pcb *pcb, struct pbuf *p,
 static void tcp_lwip_err(void *arg, err_t err)
 {
     struct tcp_forward *fwd = arg;
+
+    if (err == ERR_RST)
+        loginfo("tcp_lwip_err: lwip side RST");
+    else
+        logwarn("tcp_lwip_err: lwip error");
+
     if (fwd) {
-        logwarn("tcp_lwip_err: lwip error, force destroy fwd");
         fwd->pcb = NULL;
         tcp_forward_destroy(fwd);
     }
