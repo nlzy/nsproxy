@@ -650,7 +650,7 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
             pbuf_free(p);
             return ERR_OK;
         } else if (nread < 0) {
-            if (-nread == ECONNRESET)
+            if (-nread == ECONNRESET || -nread == EPIPE)
                 loginfo("tcp_proxy_input: proxy side RST");
             else
                 logwarn("tcp_proxy_input: proxy err: %s", strerror(-nread));
