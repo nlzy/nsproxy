@@ -405,7 +405,7 @@ static void send_fd(int sock, int fd)
     cmsg->cmsg_len = CMSG_LEN(sizeof(fd));
     memcpy(CMSG_DATA(cmsg), &fd, sizeof(fd));
 
-    if (sendmsg(sock, &msg, 0) == -1) {
+    if (sendmsg(sock, &msg, MSG_NOSIGNAL) == -1) {
         perror("sendmsg()");
         exit(EXIT_FAILURE);
     }
@@ -480,8 +480,8 @@ static int parent(int sk, pid_t cid)
     }
 
     /* write a byte after initialization, notify that parent is ready */
-    if (write(sk, &(char){ 0 }, sizeof(char)) == -1) {
-        perror("write()");
+    if (send(sk, &(char){ 0 }, sizeof(char), MSG_NOSIGNAL) == -1) {
+        fprintf(stderr, "parent: child terminated unexpectedly\n");
         exit(EXIT_FAILURE);
     }
     close(sk);
@@ -586,8 +586,8 @@ static int child(int sk, char *cmd[])
 
     /* wait for parent process to ready, avoid potential race conditions,
        prevent child process being terminated before sigprocmask is set */
-    if (read(sk, &(char){ 0 }, sizeof(char)) <= 0) {
-        fprintf(stderr, "Error: parent close socketpair unexpectedly\n");
+    if (recv(sk, &(char){ 0 }, sizeof(char), 0) <= 0) {
+        fprintf(stderr, "child: parent terminated unexpectedly\n");
         exit(EXIT_FAILURE);
     }
     close(sk);
