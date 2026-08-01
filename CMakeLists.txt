@@ -58,6 +58,10 @@ target_compile_options(nsproxy PRIVATE
     $<$<C_COMPILER_ID:Clang>:-Wno-gnu-zero-variadic-macro-arguments> # suppress clang warning GNU extension ##__VA_ARGS__
 )
 
+target_link_options(nsproxy PRIVATE
+    -Wl,-z,now
+)
+
 include(GNUInstallDirs)
 
 install(TARGETS nsproxy
