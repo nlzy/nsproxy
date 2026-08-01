@@ -507,7 +507,7 @@ static void socks_handshake_input(struct proxy_socks *self)
         /* use MSG_PEEK here, if some application layer data has been returned,
            we can carefuly not to touch them */
         nread = recv(self->sfd, buff->data + buff->size,
-                     buff->capacity - buff->size - 1, MSG_PEEK);
+                     buff->capacity - buff->size, MSG_PEEK);
         if (nread == -1 && errno == EAGAIN) {
             return;
         } else if (nread <= 0) {
