@@ -42,7 +42,8 @@ import socket
 import sys
 import argparse
 
-DATA_SIZE = 1000  # 1,000 bytes for UDP
+DATA_SIZE = 1000    # 1,000 bytes for UDP
+SOCK_TIMEOUT = 2.0  # recv timeout
 
 
 def run_server(bind_addr, port, ipv6=False):
@@ -54,7 +55,7 @@ def run_server(bind_addr, port, ipv6=False):
     print(f"Server bind on {bind_addr}:{port}", flush=True)
 
     # diagram.2: Receive 'c' from client
-    server_sock.settimeout(10)
+    server_sock.settimeout(SOCK_TIMEOUT)
     data, client_addr = server_sock.recvfrom(DATA_SIZE + 100)
 
     if len(data) != DATA_SIZE:
@@ -82,7 +83,7 @@ def run_client(server_addr, port, ipv6=False):
     """Run as client"""
     family = socket.AF_INET6 if ipv6 else socket.AF_INET
     client_sock = socket.socket(family, socket.SOCK_DGRAM)
-    client_sock.settimeout(1.0)
+    client_sock.settimeout(SOCK_TIMEOUT)
 
     # diagram.1: Send 'c' to server
     client_sock.sendto(b"c" * DATA_SIZE, (server_addr, port))

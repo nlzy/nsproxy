@@ -30,7 +30,7 @@ Usage:
 """
 
 import subprocess
-from .conftest import LOCAL_IP, managed_proc
+from .conftest import LOCAL_IP, managed_proc, COMMUNICATE_TIMEOUT
 
 
 def _test_proxy_fail(nsproxy_runner, extra_args, is_udp=False):
@@ -56,7 +56,7 @@ def _test_proxy_fail(nsproxy_runner, extra_args, is_udp=False):
             ]
         )
     ) as client:
-        cl_stdout, cl_stderr = client.communicate(timeout=3)
+        cl_stdout, cl_stderr = client.communicate(timeout=COMMUNICATE_TIMEOUT)
 
     cl_out = cl_stdout.decode(errors="replace")
     cl_err = cl_stderr.decode(errors="replace")
@@ -87,7 +87,7 @@ def _test_dns_proxy_fail(nsproxy_runner, extra_args):
             ]
         )
     ) as client:
-        cl_stdout, cl_stderr = client.communicate(timeout=5)
+        cl_stdout, cl_stderr = client.communicate(timeout=COMMUNICATE_TIMEOUT)
 
     cl_out = cl_stdout.decode(errors="replace")
     cl_err = cl_stderr.decode(errors="replace")

@@ -43,6 +43,7 @@ import sys
 import argparse
 
 DATA_SIZE = 100000  # 100,000 bytes
+SOCK_TIMEOUT = 2.0  # connect/recv/send timeout
 
 
 def recv_exact(sock, size):
@@ -96,7 +97,7 @@ def run_server(bind_addr, port):
 def run_client(server_addr, port):
     """Run as client"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1.0)
+    sock.settimeout(SOCK_TIMEOUT)
     sock.connect((server_addr, port))
 
     # diagram.1: Send 'c' to server
@@ -105,7 +106,6 @@ def run_client(server_addr, port):
     # diagram.4: Try to receive data, should get RST
     # When server sends RST, recv() will return empty or raise exception
     try:
-        sock.settimeout(5)
         data = sock.recv(4096)
         if data == b"":
             # Got EOF (FIN) instead of RST - this is unexpected

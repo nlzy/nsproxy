@@ -51,6 +51,7 @@ import sys
 import argparse
 
 DATA_SIZE = 100000  # 100,000 bytes
+SOCK_TIMEOUT = 2.0  # connect/recv/send timeout
 
 
 def recv_exact(sock, size):
@@ -119,7 +120,7 @@ def run_server(bind_addr, port):
 
     # Confirm client has stopped sending (must receive FIN, not RST)
     # Keep reading until EOF (empty bytes) which indicates FIN received
-    conn.settimeout(5)
+    conn.settimeout(SOCK_TIMEOUT)
     while True:
         chunk = conn.recv(4096)
         if chunk == b"":
@@ -142,7 +143,7 @@ def run_server(bind_addr, port):
 def run_client(server_addr, port):
     """Run as client"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1.0)
+    sock.settimeout(SOCK_TIMEOUT)
     sock.connect((server_addr, port))
 
     # diagram.1: Send 'c' to server
@@ -167,7 +168,6 @@ def run_client(server_addr, port):
 
     # Confirm server has stopped sending (must receive FIN, not RST)
     # Keep reading until EOF (empty bytes) which indicates FIN received
-    sock.settimeout(5)
     while True:
         chunk = sock.recv(4096)
         if chunk == b"":

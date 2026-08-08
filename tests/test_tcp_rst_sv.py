@@ -25,7 +25,7 @@ Usage:
 import pytest
 import subprocess
 import time
-from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP, wait_server, managed_proc
+from .conftest import SOCKS_NOAUTH_PORT, HTTP_NOAUTH_PORT, LOCAL_IP, wait_server, managed_proc, COMMUNICATE_TIMEOUT
 
 
 def _run_sv_rst_test(nsproxy_runner, extra_args):
@@ -54,7 +54,7 @@ def _run_sv_rst_test(nsproxy_runner, extra_args):
             "-p",
             str(RST_PORT),
         ])) as client:
-            cl_stdout, cl_stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=COMMUNICATE_TIMEOUT)
 
         # Get outputs
         cl_out = cl_stdout.decode(errors="replace")
@@ -64,7 +64,7 @@ def _run_sv_rst_test(nsproxy_runner, extra_args):
         if server.poll() is None:
             server.kill()
 
-        sv_stdout, sv_stderr = server.communicate(timeout=3)
+        sv_stdout, sv_stderr = server.communicate(timeout=COMMUNICATE_TIMEOUT)
         sv_out = sv_stdout.decode(errors="replace")
         sv_err = sv_stderr.decode(errors="replace")
 

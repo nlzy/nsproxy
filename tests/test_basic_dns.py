@@ -34,6 +34,7 @@ from .conftest import (
     SOCKS_NOAUTH_PORT,
     wait_server,
     managed_proc,
+    COMMUNICATE_TIMEOUT,
 )
 
 COREDNS_CONFIG = "tests/conf/coredns.conf"
@@ -59,7 +60,7 @@ def _run_dns_redir_test(nsproxy_runner, extra_args, protocol="udp"):
             "+tries=2",
             "example.com",
         ])) as client:
-            cl_stdout, cl_stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=COMMUNICATE_TIMEOUT)
 
         # Get outputs
         cl_out = cl_stdout.decode(errors="replace")

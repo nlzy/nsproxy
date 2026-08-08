@@ -24,12 +24,18 @@ PROXY_SS_LOCAL_PATH = "sslocal"
 PROXY_SS_SERVER_CONFIG = "tests/conf/shadowsocks_server.json"
 PROXY_SS_LOCAL_CONFIG = "tests/conf/shadowsocks_local.json"
 
+# Default proxy server ports
 SOCKS_NOAUTH_PORT = 31080
 SOCKS_AUTH_PORT = 31081
 HTTP_NOAUTH_PORT = 38080
 HTTP_AUTH_PORT = 38081
-
 PROXY_PORTS = [SOCKS_NOAUTH_PORT, SOCKS_AUTH_PORT, HTTP_NOAUTH_PORT, HTTP_AUTH_PORT]
+
+# Default timeout (seconds) for proc.communicate() in tests
+COMMUNICATE_TIMEOUT = 3.0
+
+# Timeouts for helper wait_* routines
+_WAIT_UTIL_DEFAULT_TIMEOUT = 2.0
 
 
 def get_local_ip():
@@ -60,7 +66,7 @@ LOCAL_IP = get_local_ip()
 LOCAL_IPV6 = get_local_ipv6()
 
 
-def wait_server(proc, marker, timeout=2):
+def wait_server(proc, marker, timeout=_WAIT_UTIL_DEFAULT_TIMEOUT):
     """Wait for one of the startup marker to appear in proc.stdout."""
     end_time = time.time() + timeout
     buf = b""
@@ -90,7 +96,7 @@ def wait_server(proc, marker, timeout=2):
     )
 
 
-def wait_port(procs, ports, host="127.0.0.1", timeout=5):
+def wait_port(procs, ports, host="127.0.0.1", timeout=_WAIT_UTIL_DEFAULT_TIMEOUT):
     """Wait until every port accepts a TCP connection, or a process exits early."""
     end_time = time.time() + timeout
     for port in ports:
@@ -104,7 +110,7 @@ def wait_port(procs, ports, host="127.0.0.1", timeout=5):
                 with socket.create_connection((host, port), timeout=0.2):
                     break
             except OSError:
-                time.sleep(0.03)
+                time.sleep(0.05)
         else:
             raise TimeoutError(
                 f"Port {host}:{port} did not accept connections within {timeout}s."
@@ -120,7 +126,7 @@ def managed_proc(proc):
         if proc.poll() is None:
             proc.terminate()
             try:
-                proc.wait(timeout=2)
+                proc.wait(timeout=_WAIT_UTIL_DEFAULT_TIMEOUT)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()

@@ -28,7 +28,7 @@ Usage:
 import subprocess
 import time
 import pytest
-from .conftest import HTTP_AUTH_PORT, SOCKS_AUTH_PORT, LOCAL_IP, wait_server, managed_proc
+from .conftest import HTTP_AUTH_PORT, SOCKS_AUTH_PORT, LOCAL_IP, wait_server, managed_proc, COMMUNICATE_TIMEOUT
 
 
 def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
@@ -64,7 +64,7 @@ def _test_auth_failure(nsproxy_runner, extra_args, is_udp=False):
             "-p",
             str(pingpong_port),
         ])) as client:
-            cl_stdout, cl_stderr = client.communicate(timeout=3)
+            cl_stdout, cl_stderr = client.communicate(timeout=COMMUNICATE_TIMEOUT)
 
         # Get outputs
         cl_out = cl_stdout.decode(errors="replace")

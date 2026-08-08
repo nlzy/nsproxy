@@ -46,6 +46,7 @@ import sys
 import argparse
 
 DATA_SIZE = 100000  # 100,000 bytes
+SOCK_TIMEOUT = 2.0  # connect/recv/send timeout
 
 
 def recv_exact(sock, size):
@@ -117,7 +118,7 @@ def run_client(server_addr, port, ipv6=False):
     family = socket.AF_INET6 if ipv6 else socket.AF_INET
     sock = socket.socket(family, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 10))
-    sock.settimeout(1.0)
+    sock.settimeout(SOCK_TIMEOUT)
     sock.connect((server_addr, port))
 
     # diagram.1: Send 'c' to server
