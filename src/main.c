@@ -137,23 +137,6 @@ static void map_ids(uid_t uid, uid_t gid)
     }
 }
 
-static void set_setgroups(const char *action)
-{
-    ssize_t ret = write_string("/proc/self/setgroups", action);
-
-    if (ret < 0) {
-        fprintf(stderr,
-                "nsproxy: set groups failed: %s\n"
-                "hints: If you are using Ubuntu >= 23.10, add the following "
-                "content to /etc/sysctl.d/70-apparmor-userns.conf\n"
-                "    kernel.apparmor_restrict_unprivileged_userns=0\n"
-                "then run command (with root)\n"
-                "    sysctl -p /etc/sysctl.d/70-apparmor-userns.conf\n",
-                strerror(-ret));
-        exit(EXIT_FAILURE);
-    }
-}
-
 static void bringup_loopback(void)
 {
     int sk;
@@ -315,20 +298,6 @@ static void setup_ipv6(void)
     close(sk);
 }
 
-/* create mount namespace, and make it isolate really */
-static int unshare_mount(void)
-{
-    if (unshare(CLONE_NEWNS) == -1)
-        goto failed;
-    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
-        goto failed;
-    return 0;
-
-failed:
-    loglv0("Warning: unshare mount namespace failed. DNS redirect may not work");
-    return -1;
-}
-
 static int overwrite_conf(const char *target, const char *content, uint8_t ro)
 {
     int fd;
@@ -362,6 +331,104 @@ failed_after_create:
     unlink(tmpname);
 failed_on_create:
     return -1;
+}
+
+/* create mount namespace, and make it isolate really */
+static int unshare_mount(void)
+{
+    struct nspconf *conf = current_nspconf();
+
+    if (unshare(CLONE_NEWNS) == -1)
+        goto failed_unshare;
+    if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL) == -1)
+        goto failed_unshare;
+
+    loginfo("child: created mount namespace");
+
+    /* OpenSSH client (ssh) exited with following message:
+       > 'Bad owner or permissions on /etc/ssh/ssh_config.d/foobar.conf'
+       That's caused by user_namespace mapped uid 0 to overflow uid, ssh
+       misunderstood as owner of the config file is bad.
+       XXX: mount a tmpfs and leave ssh_config.d empty to make ssh happy. */
+    if (has_nondotentry("/etc/ssh/ssh_config.d")) {
+        if (mount("tmpfs", "/etc/ssh/ssh_config.d", "tmpfs", 0, NULL) == -1)
+            loglv0("Warning: re-mounted /etc/ssh/ssh_config.d failed. "
+                   "OpenSSH client (ssh) may not work.");
+        else
+            loginfo("child: mounted /etc/ssh/ssh_config.d");
+    }
+
+    /* ensure DNS redirection work */
+    if (conf->dnstype != DNS_REDIR_OFF) {
+        if (overwrite_conf("/etc/resolv.conf",
+                           "nameserver " NSPROXY_GATEWAY_IP "\n", 1) < 0)
+            loglv0("Warning: re-bind /etc/resolv.conf failed. DNS redirect may "
+                   "not work.");
+        if (overwrite_conf("/etc/nsswitch.conf", "hosts: files dns\n", 1) < 0)
+            loglv0("Warning: re-bind /etc/nsswitch.conf failed. DNS redirect may "
+                   "not work.");
+    }
+
+    return 0;
+
+failed_unshare:
+    loglv0("Warning: create mount namespace failed. DNS redirect may not work.");
+    return -1;
+}
+
+/* return 0 on unprivileged approach, 1 on privileged */
+static int unshare_net(void)
+{
+    ssize_t nwrite;
+    uid_t uid;
+    gid_t gid;
+
+    /* privileged approach, which avoids creating a extra userns */
+    if (unshare(CLONE_NEWNET) == 0) {
+        loginfo("child: created net namespace (privileged)");
+        return 1;
+    }
+    if (errno == ENOSYS || errno == EINVAL) {
+        fprintf(stderr, "nsproxy: create net_namespace failed.\n"
+                        "nsproxy: This kernel may not have net_namespace "
+                        "support enabled.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    /* save original ids before create userns */
+    uid = getuid();
+    gid = getgid();
+
+    /* unprivileged approach */
+    if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
+        fprintf(stderr,
+                "nsproxy: create net_namespace failed: %s\n"
+                "hint: If you are using Debian <= 10, add the following "
+                "content to /etc/sysctl.d/70-unprivileged-userns.conf\n"
+                "    kernel.unprivileged_userns_clone=1\n"
+                "then run command (with root)\n"
+                "    sysctl -p /etc/sysctl.d/70-unprivileged-userns.conf\n",
+                strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    /* deny setgroups is regular practice, also check userns succeeded on ubuntu */
+    if ((nwrite = write_string("/proc/self/setgroups", "deny")) < 0) {
+        fprintf(stderr,
+                "nsproxy: set groups failed: %s\n"
+                "hints: If you are using Ubuntu >= 23.10, add the following "
+                "content to /etc/sysctl.d/70-apparmor-userns.conf\n"
+                "    kernel.apparmor_restrict_unprivileged_userns=0\n"
+                "then run command (with root)\n"
+                "    sysctl -p /etc/sysctl.d/70-apparmor-userns.conf\n",
+                strerror(-nwrite));
+        exit(EXIT_FAILURE);
+    }
+
+    map_ids(uid, gid);
+
+    loginfo("child: created user and net namespace (unprivileged)");
+    return 0;
 }
 
 /* raise RLIMIT_NOFILE soft limit to 'num' but not exceed hard limit
@@ -510,70 +577,11 @@ static int parent(int sk, pid_t cid)
 static int child(int sk, char *cmd[])
 {
     int tunfd;
-    uid_t uid, gid;
     struct nspconf *conf = current_nspconf();
 
-    if (unshare(CLONE_NEWNET) == -1) {
-        if (errno == ENOSYS || errno == EINVAL) {
-            fprintf(stderr, "nsproxy: create net_namespace failed.\n"
-                            "nsproxy: This kernel may not have net_namespace "
-                            "support enabled.\n");
-            exit(EXIT_FAILURE);
-        }
+    unshare_net();
 
-        /* Failed, of course. Unprivileged users can't create net_namespace.
-           Try again with user_namespace */
-        uid = getuid();
-        gid = getgid();
-
-        if (unshare(CLONE_NEWUSER | CLONE_NEWNET) == -1) {
-            fprintf(stderr,
-                    "nsproxy: create net_namespace failed: %s\n"
-                    "hint: If you are using Debian <= 10, add the following "
-                    "content to /etc/sysctl.d/70-unprivileged-userns.conf\n"
-                    "    kernel.unprivileged_userns_clone=1\n"
-                    "then run command (with root)\n"
-                    "    sysctl -p /etc/sysctl.d/70-unprivileged-userns.conf\n",
-                    strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-
-        loginfo("child: created user and net namespace");
-
-        set_setgroups("deny");
-
-        map_ids(uid, gid);
-    } else {
-        loginfo("child: created net namespace");
-    }
-
-    if (unshare_mount() == 0) {
-        loginfo("child: created mount namespace");
-
-        /* OpenSSH client (ssh) exited with following message:
-           > 'Bad owner or permissions on /etc/ssh/ssh_config.d/foobar.conf'
-           That's caused by user_namespace mapped uid 0 to overflow uid, ssh
-           misunderstood as owner of the config file is bad.
-           XXX: mount a tmpfs and leave ssh_config.d empty to make ssh happy. */
-        if (has_nondotentry("/etc/ssh/ssh_config.d")) {
-            if (mount("tmpfs", "/etc/ssh/ssh_config.d", "tmpfs", 0, NULL) == -1)
-                loglv0("Warning: re-mounted /etc/ssh/ssh_config.d failed. "
-                       "OpenSSH client (ssh) may not work.");
-            else
-                loginfo("child: mounted /etc/ssh/ssh_config.d");
-        }
-
-        /* ensure DNS redirection work */
-        if (conf->dnstype != DNS_REDIR_OFF) {
-            if (overwrite_conf("/etc/resolv.conf",
-                               "nameserver " NSPROXY_GATEWAY_IP "\n", 1) < 0)
-                loglv0("Warning: re-bind /etc/resolv.conf failed. DNS redirect "
-                       "may not work.");
-            if (overwrite_conf("/etc/nsswitch.conf", "hosts: files dns\n", 1) < 0)
-                loglv0("Warning: re-bind /etc/nsswitch.conf failed. DNS "
-                       "redirect may not work.");
-        }
-    }
+    unshare_mount();
 
     bringup_loopback();
 
