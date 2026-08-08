@@ -32,6 +32,7 @@ from .conftest import (
     LOCAL_IP,
     HTTP_NOAUTH_PORT,
     SOCKS_NOAUTH_PORT,
+    wait_server,
     managed_proc,
 )
 
@@ -45,9 +46,8 @@ def _run_dns_redir_test(nsproxy_runner, extra_args, protocol="udp"):
         ["coredns", "-conf", COREDNS_CONFIG],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )):
-        # Wait for server to start listening
-        time.sleep(0.5)
+    )) as server:
+        wait_server(server, "CoreDNS")
 
         # Run the dig client through nsproxy
         with managed_proc(nsproxy_runner(extra_args + [

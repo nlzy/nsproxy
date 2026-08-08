@@ -29,6 +29,8 @@ SOCKS_AUTH_PORT = 31081
 HTTP_NOAUTH_PORT = 38080
 HTTP_AUTH_PORT = 38081
 
+PROXY_PORTS = [SOCKS_NOAUTH_PORT, SOCKS_AUTH_PORT, HTTP_NOAUTH_PORT, HTTP_AUTH_PORT]
+
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -86,6 +88,27 @@ def wait_server(proc, marker, timeout=2):
     raise TimeoutError(
         f"Server did not print startup marker within {timeout}s. stdout so far: {buf.decode(errors='replace')}"
     )
+
+
+def wait_port(procs, ports, host="127.0.0.1", timeout=5):
+    """Wait until every port accepts a TCP connection, or a process exits early."""
+    end_time = time.time() + timeout
+    for port in ports:
+        while time.time() < end_time:
+            for proc in procs:
+                if proc.poll() is not None:
+                    raise RuntimeError(
+                        f"Proxy exited early with code {proc.returncode}."
+                    )
+            try:
+                with socket.create_connection((host, port), timeout=0.2):
+                    break
+            except OSError:
+                time.sleep(0.03)
+        else:
+            raise TimeoutError(
+                f"Port {host}:{port} did not accept connections within {timeout}s."
+            )
 
 
 @contextmanager
@@ -161,8 +184,10 @@ def proxy_server(request):
         )
         procs.append(proc_local)
 
-    time.sleep(0.5)
+    wait_port(procs, PROXY_PORTS)
+
     yield procs
+
     for proc in procs:
         proc.kill()
         proc.wait()
