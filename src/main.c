@@ -118,19 +118,18 @@ static int has_nondotentry(const char *path)
     return found;
 }
 
-static void map_ids(uid_t uid, uid_t gid)
+static void map_userns_ids(uid_t uid, gid_t gid, uid_t ouid, gid_t ogid)
 {
-    unsigned long luid = uid, lgid = gid;
     ssize_t nwrite;
     char buff[64];
 
-    snprintf(buff, sizeof(buff), "%lu %lu 1\n", luid, luid);
+    snprintf(buff, sizeof(buff), "%ju %ju 1\n", (uintmax_t)uid, (uintmax_t)ouid);
     if ((nwrite = write_string("/proc/self/uid_map", buff)) < 0) {
         fprintf(stderr, "Error: write uid_map failed: %s\n", strerror(-nwrite));
         exit(EXIT_FAILURE);
     }
 
-    snprintf(buff, sizeof(buff), "%lu %lu 1\n", lgid, lgid);
+    snprintf(buff, sizeof(buff), "%ju %ju 1\n", (uintmax_t)gid, (uintmax_t)ogid);
     if ((nwrite = write_string("/proc/self/gid_map", buff)) < 0) {
         fprintf(stderr, "Error: write gid_map failed: %s\n", strerror(-nwrite));
         exit(EXIT_FAILURE);
@@ -379,6 +378,7 @@ failed_unshare:
 /* return 0 on unprivileged approach, 1 on privileged */
 static int unshare_net(void)
 {
+    struct nspconf *conf = current_nspconf();
     ssize_t nwrite;
     uid_t uid;
     gid_t gid;
@@ -425,7 +425,10 @@ static int unshare_net(void)
         exit(EXIT_FAILURE);
     }
 
-    map_ids(uid, gid);
+    if (conf->maproot)
+        map_userns_ids(0, 0, uid, gid);
+    else
+        map_userns_ids(uid, gid, uid, gid);
 
     loginfo("child: created user and net namespace (unprivileged)");
     return 0;
@@ -637,7 +640,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    while ((opt = getopt(argc, argv, "+hVHDs:p:d:a:qv6")) != -1) {
+    while ((opt = getopt(argc, argv, "+hVHDs:p:d:a:qv6r")) != -1) {
         switch (opt) {
         case 'h':
             printf("%s", nsproxy_help_message__);
@@ -653,6 +656,9 @@ int main(int argc, char *argv[])
             break;
         case '6':
             conf.ipv6 = 1;
+            break;
+        case 'r':
+            conf.maproot = 1;
             break;
         case 's':
             serv = optarg;

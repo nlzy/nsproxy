@@ -66,6 +66,10 @@ Proxy authentication (SOCKS5 or HTTP Basic Auth).
 .B \-6
 Enable IPv6 support. Default is disabled.
 .TP
+.B \-r
+Map UID/GID to 0 (root) in the namespace, run \fICOMMAND\fR as fake root. Thus,
+capabilities related to TUN can be preserved. Default is disabled.
+.TP
 .B \-v
 Verbose mode. Use "\-vv" or "\-vvv" for more verbose. All logs are written to
 \fBstderr\fR.

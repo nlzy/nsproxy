@@ -114,6 +114,7 @@ struct nspconf {
     char proxyuser[AUTH_MAXLEN + 1];
     char proxypass[AUTH_MAXLEN + 1];
     uint8_t ipv6;
+    uint8_t maproot;
 };
 
 extern int nsproxy_verbose_level__;
