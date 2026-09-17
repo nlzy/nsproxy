@@ -137,26 +137,43 @@ static void tun_input(struct corectx *core)
 /* write packet to TUN */
 static err_t tun_output(struct corectx *core, struct pbuf *p)
 {
-    struct pbuf *seg;
-    struct iovec iov[16];
-    size_t i, clen;
+    struct iovec iov[32];
+    size_t clen;
     ssize_t nwrite;
+    static_assert(arraysizeof(iov) <= UIO_MAXIOV, "???");
 
-    clen = pbuf_clen(p);
-
-    if (clen > arraysizeof(iov) || p->tot_len > NSPROXY_MTU) {
+    if (p->tot_len > NSPROXY_MTU) {
         LWIP_DEBUGF(NETIF_DEBUG, ("tun_output: packet too large\n"));
         return ERR_IF;
     }
 
-    /* iov = segments in pbuf */
-    for (seg = p, i = 0; i < clen; i++) {
-        iov[i].iov_base = seg->payload;
-        iov[i].iov_len = seg->len;
-        seg = seg->next;
+    clen = pbuf_clen(p);
+
+    /* perfer to use zero-copy scatter-gather IO */
+    if (clen <= arraysizeof(iov)) {
+        size_t i;
+        struct pbuf *seg;
+
+        /* iov := segments in pbuf chain */
+        for (seg = p, i = 0; i < clen; i++) {
+            iov[i].iov_base = seg->payload;
+            iov[i].iov_len = seg->len;
+            seg = seg->next;
+        }
+
+        nwrite = writev(core->tunfd, iov, clen);
+    } else {
+        char *heapbuff = malloc(NSPROXY_MTU);
+
+        if (heapbuff == NULL)
+            oom();
+
+        pbuf_copy_partial(p, heapbuff, p->tot_len, 0);
+        nwrite = write(core->tunfd, heapbuff, p->tot_len);
+
+        free(heapbuff);
     }
 
-    nwrite = writev(core->tunfd, iov, clen);
     if (nwrite == -1 && errno == EAGAIN) {
         /* ERR_OK is same as frame dropped at link-layer. This is fine since TUN
            almost never returns EAGAIN with default settings */
