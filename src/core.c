@@ -46,7 +46,7 @@ struct tcp_forward {
     struct tcp_forward *prev;
     struct tcp_forward *next;
     struct proxy *proxy;
-    struct tcp_pcb *pcb;
+    struct tcp_pcb *pcb; /* async lifecycle, may NULL if proxyeof && lwipeof */
     struct pbuf *sndq; /* explicit TX RX queues require by lwIP */
     struct pbuf *rcvq;
     int gc;
@@ -604,10 +604,12 @@ static err_t tcp_forward_close(struct tcp_forward *fwd)
     if (!fwd->proxyeof || !fwd->lwipeof || fwd->sndq || fwd->rcvq)
         goto failed_abort;
 
-    tcp_arg(fwd->pcb, NULL);
-    if (tcp_close(fwd->pcb) != ERR_OK)
-        goto failed_abort;
-    fwd->pcb = NULL;
+    if (fwd->pcb) {
+        tcp_arg(fwd->pcb, NULL);
+        if (tcp_close(fwd->pcb) != ERR_OK)
+            goto failed_abort;
+        fwd->pcb = NULL;
+    }
 
     proxy_put(fwd->proxy);
     fwd->proxy = NULL;
@@ -687,7 +689,8 @@ static err_t tcp_proxy_input(struct tcp_forward *fwd)
        forward this EOF to lwip now */
     if (fwd->proxyeof && !fwd->sndq) {
         loginfo("tcp_proxy_input: sndq drained, half-closing lwip");
-        tcp_shutdown(pcb, 0, 1);
+        if (pcb)
+            tcp_shutdown(pcb, 0, 1);
         if (fwd->lwipeof && !fwd->rcvq)
             return tcp_forward_close(fwd);
     }
@@ -710,7 +713,6 @@ failed_after_pbuf_alloc:
 */
 static err_t tcp_proxy_output(struct tcp_forward *fwd)
 {
-    struct tcp_pcb *pcb = fwd->pcb;
     struct proxy *proxy = fwd->proxy;
     ssize_t nsent;
 
@@ -727,7 +729,8 @@ static err_t tcp_proxy_output(struct tcp_forward *fwd)
             return ERR_ABRT;
         } else {
             fwd->rcvq = pbuf_free_header(fwd->rcvq, nsent);
-            tcp_recved(pcb, nsent);
+            if (fwd->pcb)
+                tcp_recved(fwd->pcb, nsent);
         }
     }
 
@@ -798,14 +801,15 @@ static void tcp_lwip_err(void *arg, err_t err)
 {
     struct tcp_forward *fwd = arg;
 
-    if (err == ERR_RST)
-        loginfo("tcp_lwip_err: lwip side RST");
+    if (err == ERR_RST || err == ERR_CLSD)
+        loginfo("tcp_lwip_err: lwip side %s", err == ERR_RST ? "RST" : "CLSD");
     else
-        logwarn("tcp_lwip_err: lwip error");
+        logwarn("tcp_lwip_err: lwip error: %d", err);
 
     if (fwd) {
         fwd->pcb = NULL;
-        tcp_forward_destroy(fwd);
+        if (err != ERR_CLSD)
+            tcp_forward_destroy(fwd);
     }
 }
 
@@ -830,7 +834,7 @@ static void tcp_proxy_io_event(void *userp, unsigned int events)
     if (!err && (events & EPOLLOUT))
         err = tcp_proxy_output(fwd);
 
-    if (!err && !fwd->pcb->proxyestab) {
+    if (!err && fwd->pcb && !fwd->pcb->proxyestab) {
         /* SYN+ACK is delayed until proxy established, send it now */
         fwd->pcb->proxyestab = 1;
         tcp_output(fwd->pcb);
